@@ -47,13 +47,27 @@ function write_report(path, opts, region_rows, rohsa_metrics, selected_rows, out
         println(io, "## ROHSA Fit Metrics")
         println(io)
         if parse_bool(get(opts, "derive-products", "true"))
-            println(io, "| Region | N | selected | score | model/data | moment RMSE | moment bias | residual skew | voxel RMSE |")
-            println(io, "|---|---:|---|---:|---:|---:|---:|---:|---:|")
-            for row in sorted_rows(rohsa_metrics, ["region", "n_gauss"])
-                @printf(io, "| `%s` | %d | `%s` | %.4f | %.4f | %.4f | %.4f | %.4f | %.3f |\n",
-                        row["region"], row["n_gauss"], row["selected_for_products"], row["selection_score"],
-                        row["total_model_over_data"], row["moment_relative_rmse"],
-                        row["moment_mean_relative_bias"], row["moment_residual_skew"], row["voxel_rmse"])
+            if parse_bool(get(opts, "auto-config-enabled", "false"))
+                println(io, "| Region | Candidate | N | selected | score | recon | physical | stability | model/data | moment RMSE | moment bias | residual skew |")
+                println(io, "|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+                for row in sorted_rows(rohsa_metrics, ["region", "candidate_id", "n_gauss"])
+                    @printf(io, "| `%s` | `%s` | %d | `%s` | %.4f | %.4f | %.4f | %.4f | %.4f | %.4f | %.4f | %.4f |\n",
+                            row["region"], get(row, "candidate_id", ""), row["n_gauss"],
+                            row["selected_for_products"], row["selection_score"],
+                            get(row, "reconstruction_score", row["selection_score"]),
+                            get(row, "physical_penalty", 0.0), get(row, "stability_penalty", 0.0),
+                            row["total_model_over_data"], row["moment_relative_rmse"],
+                            row["moment_mean_relative_bias"], row["moment_residual_skew"])
+                end
+            else
+                println(io, "| Region | N | selected | score | model/data | moment RMSE | moment bias | residual skew | voxel RMSE |")
+                println(io, "|---|---:|---|---:|---:|---:|---:|---:|---:|")
+                for row in sorted_rows(rohsa_metrics, ["region", "n_gauss"])
+                    @printf(io, "| `%s` | %d | `%s` | %.4f | %.4f | %.4f | %.4f | %.4f | %.3f |\n",
+                            row["region"], row["n_gauss"], row["selected_for_products"], row["selection_score"],
+                            row["total_model_over_data"], row["moment_relative_rmse"],
+                            row["moment_mean_relative_bias"], row["moment_residual_skew"], row["voxel_rmse"])
+                end
             end
         else
             println(io, "Product derivation was disabled, so model/residual metrics were not computed.")
@@ -66,19 +80,38 @@ function write_report(path, opts, region_rows, rohsa_metrics, selected_rows, out
             end
         end
         println(io)
-        parse_bool(get(opts, "derive-products", "true")) &&
-            println(io, "The selected ROHSA run minimizes a reporting-only score based on flux recovery, moment residuals, moment bias, and residual skewness. Residual skewness near zero is preferred because positive skew suggests missed emission and negative skew suggests overfitting.")
+        if parse_bool(get(opts, "derive-products", "true"))
+            if parse_bool(get(opts, "auto-config-enabled", "false"))
+                println(io, "Auto-config selected the lowest physical-decomposition score: reconstruction quality plus penalties for negligible components, sigma-bound pileup, excessive broad-component fraction, duplicate components, and rough parameter maps. This is a preprocessing diagnostic, not downstream VGT validation.")
+            else
+                println(io, "The selected ROHSA run minimizes a reporting-only score based on flux recovery, moment residuals, moment bias, and residual skewness. Residual skewness near zero is preferred because positive skew suggests missed emission and negative skew suggests overfitting.")
+            end
+        end
         println(io)
         println(io, "## Selected Products")
         println(io)
         if isempty(selected_rows)
             println(io, "No selected product set was written because product derivation was disabled.")
         else
-            println(io, "| Region | selected N | score | product root |")
-            println(io, "|---|---:|---:|---|")
+            if parse_bool(get(opts, "auto-config-enabled", "false"))
+                println(io, "| Region | selected candidate | selected N | score | recon | physical | stability | product root |")
+                println(io, "|---|---|---:|---:|---:|---:|---:|---|")
+            else
+                println(io, "| Region | selected N | score | product root |")
+                println(io, "|---|---:|---:|---|")
+            end
             for row in sorted_rows(selected_rows, ["region"])
-                @printf(io, "| `%s` | %d | %.4f | `%s` |\n",
-                        row["region"], row["selected_n_gauss"], row["selection_score"], row["product_root"])
+                if parse_bool(get(opts, "auto-config-enabled", "false"))
+                    @printf(io, "| `%s` | `%s` | %d | %.4f | %.4f | %.4f | %.4f | `%s` |\n",
+                            row["region"], get(row, "selected_candidate_id", ""),
+                            row["selected_n_gauss"], row["selection_score"],
+                            get(row, "reconstruction_score", row["selection_score"]),
+                            get(row, "physical_penalty", 0.0),
+                            get(row, "stability_penalty", 0.0), row["product_root"])
+                else
+                    @printf(io, "| `%s` | %d | %.4f | `%s` |\n",
+                            row["region"], row["selected_n_gauss"], row["selection_score"], row["product_root"])
+                end
             end
         end
         println(io)

@@ -35,9 +35,10 @@ function heatmap_panel!(fig, row::Int, col::Int, data, title;
     return ax
 end
 
-function write_rohsa_visuals(region_dir, n_gauss::Int, data_cube, products)
+function write_rohsa_visuals(region_dir, n_gauss::Int, data_cube, products; run_label::AbstractString="")
     visual_dir = joinpath(region_dir, "visuals")
     mkpath(visual_dir)
+    file_prefix = isempty(run_label) ? "rohsa_n$(n_gauss)" : run_label
     data_moment = moment0(data_cube)
     model_moment = moment0(products.model)
     residual = model_moment .- data_moment
@@ -60,7 +61,7 @@ function write_rohsa_visuals(region_dir, n_gauss::Int, data_cube, products)
         heatmap_panel!(fig, 2, col, group_moments[group], "$(group) group moment0"; colormap=:magma,
                        colorrange=group_range)
     end
-    path = joinpath(visual_dir, "rohsa_n$(n_gauss)_moment_panels.png")
+    path = joinpath(visual_dir, "$(file_prefix)_moment_panels.png")
     CairoMakie.save(path, fig)
 
     phase_fig = CairoMakie.Figure(size=(1500, 900))
@@ -70,7 +71,7 @@ function write_rohsa_visuals(region_dir, n_gauss::Int, data_cube, products)
         heatmap_panel!(phase_fig, 2, col, products.group_nhi["$(group)_fraction"], "$(group) fraction";
                        colormap=:viridis, colorrange=(0.0, 1.0))
     end
-    phase_path = joinpath(visual_dir, "rohsa_n$(n_gauss)_width_phase_maps.png")
+    phase_path = joinpath(visual_dir, "$(file_prefix)_width_phase_maps.png")
     CairoMakie.save(phase_path, phase_fig)
 
     temp_fig = CairoMakie.Figure(size=(1500, 900))
@@ -80,7 +81,7 @@ function write_rohsa_visuals(region_dir, n_gauss::Int, data_cube, products)
         heatmap_panel!(temp_fig, 2, col, products.group_nhi["$(group)_fraction"], "$(group) fraction";
                        colormap=:viridis, colorrange=(0.0, 1.0))
     end
-    temp_path = joinpath(visual_dir, "rohsa_n$(n_gauss)_temperature_phase_maps.png")
+    temp_path = joinpath(visual_dir, "$(file_prefix)_temperature_phase_maps.png")
     CairoMakie.save(temp_path, temp_fig)
 
     sv_fig = CairoMakie.Figure(size=(900, 620))
@@ -102,7 +103,7 @@ function write_rohsa_visuals(region_dir, n_gauss::Int, data_cube, products)
     CairoMakie.hlines!(ax, [sqrt(500 / Astronomy.DOPPLER_TEMPERATURE_FACTOR),
                             sqrt(5000 / Astronomy.DOPPLER_TEMPERATURE_FACTOR)];
                        color=[:dodgerblue3, :indianred3], linestyle=:dash)
-    sv_path = joinpath(visual_dir, "rohsa_n$(n_gauss)_sigma_velocity.png")
+    sv_path = joinpath(visual_dir, "$(file_prefix)_sigma_velocity.png")
     CairoMakie.save(sv_path, sv_fig)
 
     residual_fig = CairoMakie.Figure(size=(900, 520))
@@ -113,7 +114,7 @@ function write_rohsa_visuals(region_dir, n_gauss::Int, data_cube, products)
                           ylabel="count")
     !isempty(residual_vals) && CairoMakie.hist!(axr, residual_vals; bins=60, color=:gray65, strokecolor=:gray25)
     CairoMakie.vlines!(axr, [0.0]; color=:black, linestyle=:dash)
-    residual_path = joinpath(visual_dir, "rohsa_n$(n_gauss)_residual_pdf.png")
+    residual_path = joinpath(visual_dir, "$(file_prefix)_residual_pdf.png")
     CairoMakie.save(residual_path, residual_fig)
 
     return [path, phase_path, temp_path, sv_path, residual_path]

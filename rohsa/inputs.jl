@@ -1,5 +1,7 @@
 const MAD_NORMAL = 0.6744897501960817
 
+# Region geometry is expressed in the source FITS coordinate system, while nx
+# and ny are the dimensions written to ROHSA after optional spatial striding.
 Base.@kwdef struct InputRegion
     label::String
     x0::Int
@@ -18,6 +20,8 @@ function region_from_options(input::AbstractString, image_nx::Int, image_ny::Int
     spatial_stride >= 1 ||
         throw(ArgumentError("--spatial-stride must be >= 1, got $spatial_stride"))
     if crop_size <= 0
+        # crop_size <= 0 means "use the full footprint"; stride can still reduce
+        # the grid to make exploratory laptop runs feasible.
         nx = cld(image_nx, spatial_stride)
         ny = cld(image_ny, spatial_stride)
         return InputRegion(
@@ -62,6 +66,8 @@ function maybe_reused_region(output_dir::AbstractString, opts, image_nx::Int, im
     (isfile(manifest_path) && isfile(region_path)) || return nothing
     manifest = TOML.parsefile(manifest_path)
     old_opts = get(manifest, "options", Dict{String, Any}())
+    # Only reuse a previous region when the geometry-defining options match.
+    # ROHSA parameters may change without changing the input selection.
     for key in ("input", "crop-size", "crop-x0", "crop-y0", "spatial-stride")
         string(get(old_opts, key, "")) == string(opts[key]) || return nothing
     end
@@ -95,6 +101,8 @@ function select_input_regions(input::AbstractString, image_nx::Int, image_ny::In
 end
 
 function update_region_header!(header, region::InputRegion)
+    # Preserve WCS for cropped and strided products by shifting the reference
+    # pixel into the output grid and scaling pixel size by the stride.
     header["CRPIX1"] = Float64(header["CRPIX1"]) - (region.x0 - 1)
     header["CRPIX2"] = Float64(header["CRPIX2"]) - (region.y0 - 1)
     if region.x_stride != 1
@@ -109,6 +117,8 @@ function update_region_header!(header, region::InputRegion)
 end
 
 function robust_channel_difference_noise(cube)
+    # Adjacent-channel MAD gives a scalar RMS estimate without assuming the cube
+    # is line-free; sqrt(2) converts difference noise back to per-channel noise.
     channel_diffs = vec(diff(Float64.(cube); dims=3))
     vals = [v for v in channel_diffs if isfinite(v)]
     isempty(vals) && return NaN
@@ -133,6 +143,8 @@ function write_cube_dat(dat_path::AbstractString, cube)
     nx, ny, nv = size(cube)
     open(dat_path, "w") do io
         println(io, "$(nv)\t$(ny)\t$(nx)")
+        # ROHSA .dat files are zero-indexed and ordered k, y, x even though the
+        # Julia cube is stored as x, y, velocity.
         for y in 1:ny, x in 1:nx, k in 1:nv
             @printf(io, "%d\t%d\t%d\t%.16f\n", k - 1, y - 1, x - 1, cube[x, y, k])
         end
@@ -146,6 +158,8 @@ function estimate_streamed_noise(input::AbstractString, region::InputRegion; max
     try
         _, _, nv = size(f[1])
         total_diffs = region.nx * region.ny * max(nv - 1, 0)
+        # Streamed full-footprint runs avoid materializing the cube. Subsampling
+        # the channel differences keeps the RMS estimate bounded in memory.
         sample_step = max(1, cld(total_diffs, max_samples))
         counter = 0
         sizehint!(vals, min(total_diffs, max_samples))
@@ -184,6 +198,8 @@ function write_streamed_cube_dat(input::AbstractString, dat_path::AbstractString
                 row = Float32.(read(f[1], x_range, y_src:y_src, 1:nv))
                 for x in 1:region.nx, k in 1:nv
                     v = row[x, 1, k]
+                    # Upstream ROHSA expects nonnegative brightness values here;
+                    # match the in-memory path by zeroing invalid or negative voxels.
                     clean = isfinite(v) && v > 0 ? v : 0.0f0
                     @printf(io, "%d\t%d\t%d\t%.16f\n", k - 1, y_out - 1, x - 1, clean)
                 end
@@ -206,13 +222,17 @@ function write_rms_map(rms_path::AbstractString, nx::Int, ny::Int, sigma::Real)
 end
 
 function write_region_products(input::AbstractString, header, region::InputRegion, region_dir::AbstractString;
-                               retain_cube::Bool=true, write_region_fits::Bool=true)
+                               retain_cube::Bool=true, write_region_fits::Bool=true,
+                               fits_extension::AbstractString=".fits")
     mkpath(region_dir)
     region_header = deepcopy(header)
     update_region_header!(region_header, region)
-    fits_path = joinpath(region_dir, string(region.label, ".fits"))
+    fits_ext = Astronomy.normalize_fits_extension(fits_extension)
+    fits_path = joinpath(region_dir, string(region.label, fits_ext))
     dat_path = joinpath(region_dir, string(region.label, ".dat"))
 
+    # Deriving products or visuals needs the cube later; preflight-style runs can
+    # stream directly to ROHSA .dat to avoid a second full cube in memory.
     cube = retain_cube || write_region_fits ? read_region_cube(input, region) : nothing
     if cube !== nothing
         cube .= map(v -> isfinite(v) && v > 0 ? v : 0.0f0, cube)

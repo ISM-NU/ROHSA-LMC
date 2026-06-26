@@ -5,6 +5,7 @@ const GIB = 1024.0^3
 function rohsa_padded_side(nx::Int, ny::Int)
     side = max(nx, ny)
     side <= 1 && return 1
+    # Upstream ROHSA pads spatial grids to a square power-of-two hierarchy.
     return 2 ^ ceil(Int, log2(side))
 end
 
@@ -14,6 +15,8 @@ function rohsa_memory_estimate(nx::Int, ny::Int, nv::Int, n_gauss::Int, m::Int)
     padded_pixels = padded * padded
     n_beta = 3 * n_gauss * padded_pixels + n_gauss
 
+    # This is a conservative lower-bound model of the largest upstream Fortran
+    # arrays, plus L-BFGS-B workspace. It is a launch guard, not a profiler.
     data_original = 8 * nv * original_pixels
     data_padded = 8 * nv * padded_pixels
     grid_params = 8 * 3 * n_gauss * padded_pixels
@@ -49,12 +52,16 @@ function memory_budget_gib(opts)
     0 < fraction <= 1 ||
         throw(ArgumentError("--safe-memory-fraction must be in (0, 1], got $(opts["safe-memory-fraction"])"))
     raw = opts["memory-gb"]
+    # Keep automatic budgets below physical RAM so the Fortran optimizer has
+    # room for allocator overhead and the Julia wrapper.
     base = lowercase(string(raw)) == "auto" ? Sys.total_memory() / GIB : parse(Float64, raw)
     base > 0 || throw(ArgumentError("--memory-gb must be positive or auto"))
     return base * fraction
 end
 
 function suggested_spatial_stride(image_nx::Int, image_ny::Int, nv::Int, n_gauss::Int, m::Int, budget_gib::Real)
+    # Return the smallest stride that fits the configured budget so exploratory
+    # runs preserve as much spatial resolution as the preflight estimate allows.
     for stride in 1:128
         nx = cld(image_nx, stride)
         ny = cld(image_ny, stride)

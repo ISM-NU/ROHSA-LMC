@@ -11,6 +11,8 @@ function velocity_axis_kms(header, nv::Int)
     catch
         ""
     end
+    # Some survey cubes omit or vary CUNIT3 spelling; fall back to value scale
+    # so native m/s axes are still converted before physical products are made.
     scale = if unit in ("m/s", "ms-1", "m s-1", "m/s ")
         1e-3
     elseif unit in ("km/s", "kms-1", "km s-1")
@@ -43,6 +45,8 @@ function read_rohsa_parameters(path::AbstractString, n_gauss::Int, nx::Int, ny::
         throw(ArgumentError("ROHSA output has $(size(data, 1)) rows; expected at least $expected"))
     params = zeros(Float64, 3n_gauss, nx, ny)
     idx = 1
+    # ROHSA writes rows in y, x, Gaussian order with zero-based spectral centers.
+    # Store parameters as [amp, mu_channel, sigma_channel] planes per component.
     for y in 1:ny, x in 1:nx, g in 1:n_gauss
         params[3g - 2, x, y] = data[idx, 3]
         params[3g - 1, x, y] = data[idx, 4] - 1.0
@@ -63,6 +67,8 @@ function reconstruct_rohsa_components(params, nv::Int)
         for k in 1:nv
             channel = Float64(k - 1)
             @inbounds for y in 1:ny, x in 1:nx
+                # Keep a positive floor to avoid singular fitted widths when
+                # reconstructing the Gaussian model cube from parameter maps.
                 sigma = max(sig[x, y], 1e-6)
                 components[g][x, y, k] = Float32(amp[x, y] * exp(-((channel - mu[x, y])^2) / (2sigma^2)))
             end
@@ -121,11 +127,15 @@ function skewness(values)
 end
 
 function rohsa_width_group(weighted_sigma_kms::Real)
+    # Width bins are descriptive reporting groups for ROHSA products, not a
+    # production VGT mask or a validated thermal phase classifier.
     return weighted_sigma_kms < 3 ? "narrow" :
            weighted_sigma_kms < 7 ? "intermediate" : "broad"
 end
 
 function rohsa_td_group(weighted_t_doppler_k::Real)
+    # Doppler-temperature bins follow the usual HI phase shorthand and are used
+    # only to write convenient grouped cubes and quick-look maps.
     return weighted_t_doppler_k < 500 ? "td_lt_500k" :
            weighted_t_doppler_k < 5000 ? "td_500_5000k" : "td_ge_5000k"
 end
@@ -141,6 +151,8 @@ function rohsa_component_rows(region_label::AbstractString, n_gauss::Int, params
         sig_chan = @view params[3g, :, :]
         moment = moment0(comp)
         sigma_kms = abs(Float64(dv_kms)) .* sig_chan
+        # Component centroids are fitted in channel coordinates; use the FITS
+        # velocity axis only when converting summaries and maps to km/s.
         mu_kms = begin
             first_velocity = first(velocities_kms)
             step = length(velocities_kms) > 1 ? velocities_kms[2] - velocities_kms[1] : Float64(dv_kms)
@@ -200,10 +212,15 @@ end
 
 function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label::AbstractString,
                                             header, params, components, data_cube;
-                                            n_gauss::Int=length(components))
+                                            n_gauss::Int=length(components),
+                                            run_label::AbstractString="",
+                                            fits_extension::AbstractString=".fits")
     nv = size(data_cube, 3)
     velocities_kms, dv_kms = velocity_axis_kms(header, nv)
-    root = joinpath(crop_dir, "rohsa", "n$(n_gauss)")
+    file_prefix = isempty(run_label) ? "rohsa_n$(n_gauss)" : run_label
+    tree_label = isempty(run_label) ? "n$(n_gauss)" : run_label
+    fits_ext = normalize_fits_extension(fits_extension)
+    root = joinpath(crop_dir, "rohsa", tree_label)
     map_dir = joinpath(root, "maps")
     cube_dir = joinpath(root, "cubes")
     mkpath(map_dir)
@@ -229,10 +246,12 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
         comp = components[g]
         model .+= comp
         row = component_rows[g]
+        # Each Gaussian contributes to exactly one width group and one
+        # Doppler-temperature group based on its moment-weighted summaries.
         width_groups[string(row["width_group"])] .+= comp
         temperature_groups[string(row["td_group"])] .+= comp
 
-        component_path = joinpath(crop_dir, "rohsa_n$(n_gauss)_component_g$(g).fits")
+        component_path = joinpath(crop_dir, "$(file_prefix)_component_g$(g)$(fits_ext)")
         write_fits(component_path, comp; header=header)
         component_paths[g] = component_path
         cube_paths["component_g$(g)"] = component_path
@@ -253,29 +272,31 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
             "t_doppler_k" => t_doppler,
             "nhi_cm2" => nhi,
         )
-            path = joinpath(map_dir, "rohsa_n$(n_gauss)_component_g$(g)_$(name).fits")
+            path = joinpath(map_dir, "$(file_prefix)_component_g$(g)_$(name)$(fits_ext)")
             write_fits(path, data; header=header)
             map_paths["component_g$(g)_$(name)"] = path
         end
     end
 
-    model_path = joinpath(crop_dir, "rohsa_n$(n_gauss)_model.fits")
+    model_path = joinpath(crop_dir, "$(file_prefix)_model$(fits_ext)")
+    # Duplicate frequently inspected cubes at the region root for compatibility
+    # with earlier probe outputs, while keeping the organized rohsa/n*/ tree.
     write_fits(model_path, model; header=header)
-    write_fits(joinpath(cube_dir, "rohsa_n$(n_gauss)_model.fits"), model; header=header)
+    write_fits(joinpath(cube_dir, "$(file_prefix)_model$(fits_ext)"), model; header=header)
     cube_paths["model"] = model_path
 
     group_paths = Dict{String, String}()
     group_nhi = Dict{String, Matrix{Float64}}()
     all_groups = merge(width_groups, temperature_groups)
     for (group, cube) in all_groups
-        path = joinpath(crop_dir, "rohsa_n$(n_gauss)_$(group)_group.fits")
+        path = joinpath(crop_dir, "$(file_prefix)_$(group)_group$(fits_ext)")
         write_fits(path, cube; header=header)
         group_paths[group] = path
-        write_fits(joinpath(cube_dir, "rohsa_n$(n_gauss)_$(group)_group.fits"), cube; header=header)
+        write_fits(joinpath(cube_dir, "$(file_prefix)_$(group)_group$(fits_ext)"), cube; header=header)
         cube_paths["$(group)_group"] = path
         nhi = column_density_map(cube, dv_kms)
         group_nhi[group] = nhi
-        map_path = joinpath(map_dir, "rohsa_n$(n_gauss)_$(group)_nhi_cm2.fits")
+        map_path = joinpath(map_dir, "$(file_prefix)_$(group)_nhi_cm2$(fits_ext)")
         write_fits(map_path, Float32.(nhi); header=header)
         map_paths["$(group)_nhi_cm2"] = map_path
     end
@@ -285,23 +306,26 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
     residual = Float32.(Float64.(model) .- Float64.(data_cube))
     residual_moment = moment0(model) .- moment0(data_cube)
     residual_nhi = model_nhi .- data_nhi
-    residual_cube_path = joinpath(cube_dir, "rohsa_n$(n_gauss)_residual_cube.fits")
+    residual_cube_path = joinpath(cube_dir, "$(file_prefix)_residual_cube$(fits_ext)")
     write_fits(residual_cube_path, residual; header=header)
     cube_paths["residual"] = residual_cube_path
+    # Residual convention is model - data throughout the report and products.
     for (name, data) in (
         "model_nhi_cm2" => model_nhi,
         "data_nhi_cm2" => data_nhi,
         "residual_moment0_kkms" => residual_moment .* dv_kms,
         "residual_nhi_cm2" => residual_nhi,
     )
-        path = joinpath(map_dir, "rohsa_n$(n_gauss)_$(name).fits")
+        path = joinpath(map_dir, "$(file_prefix)_$(name)$(fits_ext)")
         write_fits(path, Float32.(data); header=header)
         map_paths[name] = path
     end
 
     for group in ("narrow", "intermediate", "broad", "td_lt_500k", "td_500_5000k", "td_ge_5000k")
+        # Fractions are normalized by the reconstructed ROHSA model column
+        # density, so they describe the decomposition rather than raw data.
         add_fraction_map!(group_nhi, "$(group)_fraction", group_nhi[group], model_nhi)
-        path = joinpath(map_dir, "rohsa_n$(n_gauss)_$(group)_fraction.fits")
+        path = joinpath(map_dir, "$(file_prefix)_$(group)_fraction$(fits_ext)")
         write_fits(path, Float32.(group_nhi["$(group)_fraction"]); header=header)
         map_paths["$(group)_fraction"] = path
     end

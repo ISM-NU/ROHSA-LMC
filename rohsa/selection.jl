@@ -5,6 +5,8 @@ function metric_float(row, key::AbstractString)
 end
 
 function rohsa_selection_score(row)
+    # Reporting-only heuristic for choosing which N gets product manifests. It
+    # favors flux recovery and low moment residuals; it is not a VGT validation.
     vals = (
         abs(metric_float(row, "total_model_over_data") - 1.0),
         metric_float(row, "moment_relative_rmse"),
@@ -17,7 +19,7 @@ end
 
 function select_best_rohsa_n(rows)
     isempty(rows) && throw(ArgumentError("Cannot select best ROHSA run from empty metrics"))
-    scores = [rohsa_selection_score(row) for row in rows]
+    scores = [haskey(row, "selection_score") ? metric_float(row, "selection_score") : rohsa_selection_score(row) for row in rows]
     return rows[argmin(scores)]
 end
 
@@ -47,7 +49,11 @@ function selected_rohsa_summary_rows(selected; group_label="region")
         push!(rows, Dict{String, Any}(
             group_label => key,
             "selected_n_gauss" => row["n_gauss"],
+            "selected_candidate_id" => get(row, "candidate_id", ""),
             "selection_score" => row["selection_score"],
+            "reconstruction_score" => get(row, "reconstruction_score", row["selection_score"]),
+            "physical_penalty" => get(row, "physical_penalty", 0.0),
+            "stability_penalty" => get(row, "stability_penalty", 0.0),
             "total_model_over_data" => row["total_model_over_data"],
             "moment_relative_rmse" => row["moment_relative_rmse"],
             "moment_mean_relative_bias" => row["moment_mean_relative_bias"],
@@ -65,7 +71,7 @@ function write_rohsa_selection(path::AbstractString, selected)
     open(path, "w") do io
         TOML.print(io, Dict(
             "stage" => "rohsa_config_selection",
-            "selection_rule" => "minimize abs(model/data-1)+moment_relative_rmse+abs(moment_bias)+0.10*abs(moment_residual_skew)",
+            "selection_rule" => "minimize selection_score; auto-config uses reconstruction_score+physical_penalty+stability_penalty",
             "selected" => selected,
         ); sorted=true)
     end

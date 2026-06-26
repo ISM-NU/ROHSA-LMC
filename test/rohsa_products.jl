@@ -63,6 +63,48 @@ using Test
         @test isfile(products.map_paths["td_lt_500k_fraction"])
         @test products.fit_row["total_model_over_data"] ≈ 1.0
         @test products.group_nhi["td_lt_500k_fraction"] == ones(2, 2) .* (products.group_nhi["td_lt_500k"][1, 1] / products.model_nhi[1, 1])
+
+        labeled = Astronomy.write_rohsa_decomposition_products(
+            dir,
+            "region",
+            header,
+            params,
+            components,
+            data_cube;
+            n_gauss=2,
+            run_label="rohsa_c001_n2",
+        )
+        @test occursin("rohsa_c001_n2", labeled.root)
+        @test occursin("rohsa_c001_n2_model.fits", labeled.model_path)
+
+        if Sys.which("fpack") === nothing
+            @test_throws ArgumentError Astronomy.write_rohsa_decomposition_products(
+                dir,
+                "region",
+                header,
+                params,
+                components,
+                data_cube;
+                n_gauss=2,
+                run_label="rohsa_c002_n2",
+                fits_extension=".fits.fz",
+            )
+        else
+            compressed = Astronomy.write_rohsa_decomposition_products(
+                dir,
+                "region",
+                header,
+                params,
+                components,
+                data_cube;
+                n_gauss=2,
+                run_label="rohsa_c002_n2",
+                fits_extension=".fits.fz",
+            )
+            @test endswith(compressed.model_path, ".fits.fz")
+            @test isfile(compressed.model_path)
+            @test Astronomy.read_fits_image(compressed.model_path) == compressed.model
+        end
     end
 end
 

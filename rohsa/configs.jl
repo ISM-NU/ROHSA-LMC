@@ -20,6 +20,7 @@ const ROHSA_CONFIG_KEYS = Dict(
     "force_full_cube" => "force-full-cube",
     "memory_gb" => "memory-gb",
     "safe_memory_fraction" => "safe-memory-fraction",
+    "fits_extension" => "fits-extension",
     "n_gauss" => "n-gauss",
     "lambda_amp" => "lambda-amp",
     "lambda_mu" => "lambda-mu",
@@ -47,6 +48,26 @@ const ROHSA_CONFIG_KEYS = Dict(
     "save_grid" => "save-grid",
 )
 
+const ROHSA_AUTO_CONFIG_KEYS = Dict(
+    "enabled" => "auto-config-enabled",
+    "profile" => "auto-config-profile",
+    "max_candidates" => "auto-config-max-candidates",
+    "n_gauss" => "auto-config-n-gauss",
+    "lambda_amp" => "auto-config-lambda-amp",
+    "lambda_mu" => "auto-config-lambda-mu",
+    "lambda_sig" => "auto-config-lambda-sig",
+    "lambda_var_amp" => "auto-config-lambda-var-amp",
+    "lambda_var_mu" => "auto-config-lambda-var-mu",
+    "lambda_var_sig" => "auto-config-lambda-var-sig",
+    "small_component_fraction" => "auto-config-small-component-fraction",
+    "broad_fraction_limit" => "auto-config-broad-fraction-limit",
+    "sigma_bound_tolerance" => "auto-config-sigma-bound-tolerance",
+    "duplicate_velocity_kms" => "auto-config-duplicate-velocity-kms",
+    "duplicate_sigma_kms" => "auto-config-duplicate-sigma-kms",
+    "physical_weight" => "auto-config-physical-weight",
+    "stability_weight" => "auto-config-stability-weight",
+)
+
 const OPTIONAL_ROHSA_OPTIONS = Dict(
     "spatial-stride" => "1",
     "derive-products" => "true",
@@ -55,6 +76,17 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     "force-full-cube" => "false",
     "memory-gb" => "auto",
     "safe-memory-fraction" => "0.70",
+    "fits-extension" => ".fits",
+    "auto-config-enabled" => "false",
+    "auto-config-profile" => "physical_decomposition",
+    "auto-config-max-candidates" => "24",
+    "auto-config-small-component-fraction" => "0.01",
+    "auto-config-broad-fraction-limit" => "0.60",
+    "auto-config-sigma-bound-tolerance" => "0.05",
+    "auto-config-duplicate-velocity-kms" => "2.0",
+    "auto-config-duplicate-sigma-kms" => "1.0",
+    "auto-config-physical-weight" => "1.0",
+    "auto-config-stability-weight" => "0.05",
 )
 
 const REQUIRED_ROHSA_OPTIONS = setdiff(Set(values(ROHSA_CONFIG_KEYS)), Set(keys(OPTIONAL_ROHSA_OPTIONS)))
@@ -70,13 +102,21 @@ function load_rohsa_config(path::AbstractString)
     isfile(path) || throw(ArgumentError("ROHSA config file not found: $path"))
     raw = TOML.parsefile(path)
     opts = Dict{String, String}()
+    # Flatten TOML tables into the option names used by the CLI and by the
+    # generated Fortran namelist, while rejecting silent misspellings.
     for (table_name, table_value) in raw
         table_value isa AbstractDict ||
             throw(ArgumentError("Top-level ROHSA config entry `$table_name` must be a TOML table"))
         for (key, value) in table_value
-            haskey(ROHSA_CONFIG_KEYS, key) ||
-                throw(ArgumentError("Unknown ROHSA config key `$table_name.$key` in $path"))
-            opts[ROHSA_CONFIG_KEYS[key]] = config_value_string(value)
+            if table_name == "auto_config"
+                haskey(ROHSA_AUTO_CONFIG_KEYS, key) ||
+                    throw(ArgumentError("Unknown ROHSA auto-config key `$table_name.$key` in $path"))
+                opts[ROHSA_AUTO_CONFIG_KEYS[key]] = config_value_string(value)
+            else
+                haskey(ROHSA_CONFIG_KEYS, key) ||
+                    throw(ArgumentError("Unknown ROHSA config key `$table_name.$key` in $path"))
+                opts[ROHSA_CONFIG_KEYS[key]] = config_value_string(value)
+            end
         end
     end
     missing = sort([key for key in REQUIRED_ROHSA_OPTIONS if !haskey(opts, key)])
@@ -85,6 +125,7 @@ function load_rohsa_config(path::AbstractString)
     for (key, value) in OPTIONAL_ROHSA_OPTIONS
         get!(opts, key, value)
     end
+    opts["fits-extension"] = Astronomy.normalize_fits_extension(opts["fits-extension"])
     opts["config-path"] = abspath(path)
     return opts
 end
@@ -105,6 +146,8 @@ end
 
 function write_rohsa_parameters(path, dat_path, rms_path, out_path, timeout_path, n_gauss::Int, opts)
     open(path, "w") do io
+        # Upstream ROHSA consumes a Fortran namelist. Numeric real values are
+        # emitted with d0 exponents to match the original examples.
         println(io, "&user_parameters")
         println(io, "    filename = '$(abspath(dat_path))'")
         println(io, "    ,fileout = '$(abspath(out_path))'")

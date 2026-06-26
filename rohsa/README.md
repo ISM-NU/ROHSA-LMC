@@ -61,8 +61,13 @@ The wrapper derives ROHSA products only. It does not run VGT and does not
 compare ROHSA products against default VGT outputs.
 
 Edit `rohsa/config.toml` to choose the input cube, output directory, crop,
-visual-output setting, and every ROHSA parameter. The checked-in values mirror
-`upstream/ROHSA/ROHSApy.ipynb`; there is no project-specific hidden preset.
+visual-output setting, FITS output extension, and every ROHSA parameter. The
+checked-in values mirror `upstream/ROHSA/ROHSApy.ipynb`; there is no
+project-specific hidden preset.
+
+Set `fits_extension = ".fits.fz"` to write ROHSA FITS products through the same
+path-based compression helper used by VGT outputs. This requires `fpack` on
+`PATH`; leave the default `.fits` for uncompressed products.
 
 To use a different config file:
 
@@ -76,3 +81,29 @@ result. The full candidate list is written to `rohsa_fit_metrics.csv` and
 `rohsa_product_paths.csv`; the chosen products are written separately to
 `rohsa_selection_summary.csv`, `selected_rohsa_products.csv`, and
 `selected_rohsa_config.toml`.
+
+## Auto-Config
+
+ROHSA auto-config is optional and stays inside preprocessing. Enable it with
+`[auto_config] enabled = true` in `rohsa/config.toml`. The normal `[rohsa]`
+table remains the base config; any auto-config axis that is omitted uses the
+single value from `[rohsa]`.
+
+Resolution algorithm:
+
+1. Build a deterministic candidate grid from listed axes such as `n_gauss`,
+   `lambda_amp`, `lambda_mu`, `lambda_sig`, and `lambda_var_sig`.
+2. If the grid exceeds `max_candidates`, keep a deterministic coarse spread of
+   candidates instead of random sampling.
+3. Run every retained candidate with an isolated candidate ID, so repeated
+   `n_gauss` values with different regularization do not overwrite outputs.
+4. Score successful candidates as
+   `reconstruction_score + physical_penalty + stability_penalty`.
+5. Select the lowest score per region and write the complete ranking to
+   `rohsa_auto_config_candidates.csv`.
+
+`reconstruction_score` is the existing flux/moment residual score.
+`physical_penalty` discourages negligible components, sigma-bound pileup,
+excess broad-component fraction, and duplicate components. `stability_penalty`
+discourages rough amplitude, centroid, and linewidth maps. This selector is a
+preprocessing diagnostic, not downstream VGT or starlight validation.
