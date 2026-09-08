@@ -2,6 +2,10 @@
 
 This folder contains the project-side ROHSA preprocessing workflow.
 
+For the NU Irgetas supercomputer, start with the beginner runbook at
+`hpc/irgetas/README.md`. It adds Slurm and memory guardrails without changing
+the ROHSA estimator.
+
 - `upstream/ROHSA/` is the nested upstream ROHSA source tree. Keep it separate
   from project adapter code.
 - `config.toml` is the editable run configuration.

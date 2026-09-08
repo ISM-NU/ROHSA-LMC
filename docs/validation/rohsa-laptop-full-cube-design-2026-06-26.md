@@ -19,7 +19,11 @@ For the default HNV cube,
 shape is `3624 x 3624 x 106`. ROHSA pads the spatial grid to powers of two for
 the multiresolution descent, so this becomes a `4096 x 4096 x 106` working grid.
 
-The current preflight estimate for `N = 6`, `m = 10` is about `400 GiB` peak.
+The corrected preflight estimate for the production `f_g_cube_fast` path at
+`N = 6`, `m = 10` is about `128 GiB` peak. An earlier estimate of about 400
+GiB incorrectly included the four-dimensional derivative tensor allocated by
+the older, unused `f_g_cube` routine. This remains far above laptop memory but
+fits a normal Irgetas ZEN4 node.
 This is not caused by FITS storage format. The large allocations happen after
 the data are decompressed and loaded as numeric arrays.
 
@@ -29,13 +33,14 @@ Relevant upstream allocation points:
   `cube(nv, ny, nx)`.
 - `rohsa/upstream/ROHSA/src/mod_functions.f90` flattens the full parameter cube
   into `beta`, `lb`, and `ub` arrays for L-BFGS-B.
-- `rohsa/upstream/ROHSA/src/mod_optimize.f90` allocates
-  `dF_over_dB(3*n_gauss, dim_v, dim_y, dim_x)`, plus full residual and gradient
-  work arrays.
+- `rohsa/upstream/ROHSA/src/mod_optimize.f90` production routine
+  `f_g_cube_fast` allocates full residual and 3N gradient-map work arrays. The
+  larger `dF_over_dB(3*n_gauss, dim_v, dim_y, dim_x)` belongs to the retained
+  but unused `f_g_cube` routine.
 
-Even aggressive parameter reductions do not make the exact upstream path fit a
-14 GiB RAM laptop. For example, `N = 1`, `m = 1` still estimates near `100 GiB`
-because the derivative tensor scales with `3 * N * nv * padded_y * padded_x`.
+The exact upstream full-resolution path still does not fit a 14 GiB laptop.
+The production allocation is dominated by padded data/residual cubes and the
+L-BFGS-B vectors and workspace, which scale with the full padded sky grid.
 
 ## Does This Require Changing Fortran?
 

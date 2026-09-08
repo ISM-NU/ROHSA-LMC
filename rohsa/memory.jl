@@ -22,12 +22,15 @@ function rohsa_memory_estimate(nx::Int, ny::Int, nv::Int, n_gauss::Int, m::Int)
     grid_params = 8 * 3 * n_gauss * padded_pixels
     bounds_and_beta = 8 * 5 * n_beta
     lbfgs_work = 8 * (2 * m * n_beta + 5 * n_beta + 11 * m * m + 8 * m)
-    derivative_tensor = 8 * 3 * n_gauss * nv * padded_pixels
+    # Production calls f_g_cube_fast, which accumulates the spectral gradient
+    # into a 3N x ny x nx array. The older, unused f_g_cube routine allocates a
+    # 3N x nv x ny x nx tensor and must not drive the launch estimate.
+    derivative_map = 8 * 3 * n_gauss * padded_pixels
     residual = 8 * nv * padded_pixels
     small_maps = 8 * 20 * padded_pixels
 
     lower_bound = data_original + data_padded + grid_params + bounds_and_beta +
-                  lbfgs_work + derivative_tensor + residual + small_maps
+                  lbfgs_work + derivative_map + residual + small_maps
     peak = ceil(Int, lower_bound * 1.15)
     return (;
         nx,
@@ -40,7 +43,7 @@ function rohsa_memory_estimate(nx::Int, ny::Int, nv::Int, n_gauss::Int, m::Int)
         data_padded,
         grid_params,
         lbfgs_work,
-        derivative_tensor,
+        derivative_map,
         lower_bound,
         peak,
         peak_gib=peak / GIB,
