@@ -1,0 +1,125 @@
+From bac6ec85b66498df9998681a088cdc441d788d63 Mon Sep 17 00:00:00 2001
+From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 19:47:41 +0500
+Subject: [PATCH] Fix integer overflow in the L-BFGS-B workspace for large
+ problems
+
+setulb stored the offsets of its sub-arrays inside wa in default (32-bit)
+integers. The offset of d is about n*(2m+2), so with n = 3*N*nx*ny
+parameters it passes 2**31 for large maps, e.g. N = 8 on 2048 x 2048
+(n = 100.7 million) with m = 10. The offset then wraps to a negative
+value and cauchy writes outside wa (segmentation fault at the start of
+the last multigrid level). The size passed to allocate in mod_minimize
+overflowed in the same way.
+
+The offsets are now integer*8 and recomputed from n and m on each call,
+the wa dummy argument is assumed-size, and wa is allocated with a 64-bit
+size. Results are unchanged for problems that already fit.
+
+---
+ src/lbfgsb.f         | 59 ++++++++++++++++++--------------------------
+ src/mod_minimize.f90 |  4 +--
+ 2 files changed, 26 insertions(+), 37 deletions(-)
+
+diff --git a/src/lbfgsb.f b/src/lbfgsb.f
+index 46cfaa9..9964a8c 100644
+--- a/src/lbfgsb.f
++++ b/src/lbfgsb.f
+@@ -55,7 +55,7 @@ c=============================================================================
+       double precision f, factr, pgtol, x(n), l(n), u(n), g(n),
+ c
+ c-jlm-jn
+-     +                 wa(2*m*n + 5*n + 11*m*m + 8*m), dsave(29)
++     +                 wa(*), dsave(29)
+  
+ c     ************
+ c
+@@ -237,40 +237,29 @@ c
+ c
+ c     ************
+ c-jlm-jn 
+-      integer   lws,lr,lz,lt,ld,lxp,lwa,
+-     +          lwy,lsy,lss,lwt,lwn,lsnd
+-
+-      if (task .eq. 'START') then
+-         isave(1)  = m*n
+-         isave(2)  = m**2
+-         isave(3)  = 4*m**2
+-         isave(4)  = 1                      ! ws      m*n
+-         isave(5)  = isave(4)  + isave(1)   ! wy      m*n
+-         isave(6)  = isave(5)  + isave(1)   ! wsy     m**2
+-         isave(7)  = isave(6)  + isave(2)   ! wss     m**2
+-         isave(8)  = isave(7)  + isave(2)   ! wt      m**2
+-         isave(9)  = isave(8)  + isave(2)   ! wn      4*m**2
+-         isave(10) = isave(9)  + isave(3)   ! wsnd    4*m**2
+-         isave(11) = isave(10) + isave(3)   ! wz      n
+-         isave(12) = isave(11) + n          ! wr      n
+-         isave(13) = isave(12) + n          ! wd      n
+-         isave(14) = isave(13) + n          ! wt      n
+-         isave(15) = isave(14) + n          ! wxp     n
+-         isave(16) = isave(15) + n          ! wa      8*m
+-      endif
+-      lws  = isave(4)
+-      lwy  = isave(5)
+-      lsy  = isave(6)
+-      lss  = isave(7)
+-      lwt  = isave(8)
+-      lwn  = isave(9)
+-      lsnd = isave(10)
+-      lz   = isave(11)
+-      lr   = isave(12)
+-      ld   = isave(13)
+-      lt   = isave(14)
+-      lxp  = isave(15)
+-      lwa  = isave(16)
++c     The workspace offsets are 64-bit integers: 2*m*n exceeds 2**31
++c     for large problems (e.g. 8 Gaussians on a 2048 x 2048 map with
++c     m = 10), and default-integer offsets would wrap around. They are
++c     recomputed from n and m on every call instead of being kept in
++c     isave(1:16).
++      integer*8 lws,lr,lz,lt,ld,lxp,lwa,
++     +          lwy,lsy,lss,lwt,lwn,lsnd,mn,mm
++
++      mn   = int(m,8)*int(n,8)
++      mm   = int(m,8)*int(m,8)
++      lws  = 1
++      lwy  = lws  + mn
++      lsy  = lwy  + mn
++      lss  = lsy  + mm
++      lwt  = lss  + mm
++      lwn  = lwt  + mm
++      lsnd = lwn  + 4*mm
++      lz   = lsnd + 4*mm
++      lr   = lz   + n
++      ld   = lr   + n
++      lt   = ld   + n
++      lxp  = lt   + n
++      lwa  = lxp  + n
+ 
+       call mainlb(n,m,x,l,u,nbd,f,g,factr,pgtol,
+      +  wa(lws),wa(lwy),wa(lsy),wa(lss), wa(lwt),
+diff --git a/src/mod_minimize.f90 b/src/mod_minimize.f90
+index a86ae81..ea8ba77 100644
+--- a/src/mod_minimize.f90
++++ b/src/mod_minimize.f90
+@@ -44,7 +44,7 @@ contains
+     !     Allocate dynamic arrays
+     allocate(nbd(n), g(n))
+     allocate(iwa(3*n))
+-    allocate(wa(2*m*n + 5*n + 11*m*m + 8*m))
++    allocate(wa(2_8*m*n + 5_8*n + 11*m*m + 8*m)) ! 64-bit size: 2*m*n can exceed 2**31
+ 
+     allocate(residual(dim_v))
+     residual = 0._xp
+@@ -124,7 +124,7 @@ contains
+     !     Allocate dynamic arrays
+     allocate(nbd(n), g(n))
+     allocate(iwa(3*n))
+-    allocate(wa(2*m*n + 5*n + 11*m*m + 8*m))
++    allocate(wa(2_8*m*n + 5_8*n + 11*m*m + 8*m)) ! 64-bit size: 2*m*n can exceed 2**31
+ 
+     f = 0._xp
+     g = 0._xp
+-- 
+2.56.0
+

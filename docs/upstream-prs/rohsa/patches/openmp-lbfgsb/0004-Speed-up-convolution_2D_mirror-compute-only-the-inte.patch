@@ -1,0 +1,96 @@
+From e4ec1bac7bd59cbaaa8872ab8f542a1bdcfbb707 Mon Sep 17 00:00:00 2001
+From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 19:49:02 +0500
+Subject: [PATCH 4/6] Speed up convolution_2D_mirror: compute only the interior
+ points
+
+convolution_2D_mirror convolved the whole padded (dim_y+4) x (dim_x+4)
+array with a bounds test on every kernel term, kept only the interior
+dim_y x dim_x points, and allocated a second padded array on every call.
+It is called six times per Gaussian per cost-function evaluation and was
+the largest single cost in a profile of a 256 x 256 run.
+
+Only the interior points are now computed, directly into conv. Their
+neighbours are always inside the padded array, so the bounds test and the
+second array are not needed. The kernel terms are added in the same order,
+so the result is bit-for-bit identical.
+
+---
+ src/mod_array.f90 | 43 +++++++++++++------------------------------
+ 1 file changed, 13 insertions(+), 30 deletions(-)
+
+diff --git a/src/mod_array.f90 b/src/mod_array.f90
+index 558e1ff..ee35d36 100644
+--- a/src/mod_array.f90
++++ b/src/mod_array.f90
+@@ -19,18 +19,16 @@ contains
+     real(xp), intent(in), dimension(:,:), allocatable :: kernel
+     integer, intent(in) :: dim_y, dim_x, dim_k
+ 
+-    integer :: i, j, ii, jj, m, n, mm, nn
+-    integer :: kCenterY, kCenterX
+-    real(xp), dimension(:,:), allocatable :: ext_conv, extended
++    integer :: i, j, m, n, kc
++    real(xp) :: acc
++    real(xp), dimension(:,:), allocatable :: extended
+ 
+-    allocate(ext_conv(dim_y+4, dim_x+4))
++    ! Only the interior points are convolved: they are the only ones kept,
++    ! and their neighbours are always inside the padded array, so no bounds
++    ! test is needed. The terms are added in the same order as before.
+     allocate(extended(dim_y+4, dim_x+4))
+-
+-    ii = 0; jj = 0; mm = 0; nn = 0
+-    kCenterY = 0; kCenterX = 0
+-    ext_conv = 0._xp
+     extended = 0._xp
+-    
++
+     do j=1, dim_x
+        do i=1, dim_y
+           extended(2+i,2+j) = image(i,j)
+@@ -61,35 +59,20 @@ contains
+        end do
+     end do
+     
+-    kCenterY = dim_k / 2 + 1
+-    kCenterX = kCenterY
++    kc = dim_k / 2 + 1
+ 
+-    do j=1, dim_x+4
+-       do i=1, dim_y+4
++    do j=1, dim_x
++       do i=1, dim_y
++          acc = 0._xp
+           do m=1, dim_k
+-             mm = dim_k - m + 1
+-             
+              do n=1, dim_k
+-                nn = dim_k - n + 1
+-
+-                ii = i + (m - kCenterY)
+-                jj = j + (n - kCenterX)
+-                
+-                if( ii >= 1 .and. ii < dim_y+4 .and. jj >= 1 .and. jj < dim_x+4 ) then
+-                   ext_conv(i,j) = ext_conv(i,j) + extended(ii,jj) * kernel(mm,nn)
+-                end if
++                acc = acc + extended(2+i+(m-kc), 2+j+(n-kc)) * kernel(dim_k-m+1, dim_k-n+1)
+              end do
+-             
+           end do
++          conv(i,j) = acc
+        end do
+     end do
+ 
+-    do j=1, dim_x
+-       do i=1, dim_y
+-          conv(i,j) = ext_conv(2+i,2+j)
+-       end do
+-    end do    
+-    
+   end subroutine convolution_2D_mirror
+ 
+ 
+-- 
+2.56.0
+

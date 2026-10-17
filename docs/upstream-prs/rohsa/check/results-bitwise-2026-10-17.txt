@@ -1,0 +1,34 @@
+# Synthetic 256x256x100 cube (make_synthetic.py), N = 4, one thread per run, laptop (AMD Ryzen 9 7940HS), 4 runs at a time.
+# Names: <PR>_s = serial build, <PR>_o1 = OPENMP=1 build with OMP_NUM_THREADS=1, binT = .bin of the parsed text values, binD = .bin written directly by cube2bin.
+
+master_s       vs pr1_s          BIT-FOR-BIT IDENTICAL
+master_s       vs pr2_s          BIT-FOR-BIT IDENTICAL
+master_s       vs pr3a_s         BIT-FOR-BIT IDENTICAL
+master_s       vs pr3_s          differ: per-pixel integrated model rel. diff median 3.2e-05, p99 6.6e-04, max 3.8e-03
+pr3_s          vs pr4_s          BIT-FOR-BIT IDENTICAL
+pr4_s          vs pr4_o1         BIT-FOR-BIT IDENTICAL
+pr4_s          vs pr5_s          BIT-FOR-BIT IDENTICAL
+pr4_s          vs pr5_o1         BIT-FOR-BIT IDENTICAL
+master_s       vs pr6_s          BIT-FOR-BIT IDENTICAL
+pr6_s          vs pr6_binT       BIT-FOR-BIT IDENTICAL
+pr6_s          vs pr6_binD       differ: per-pixel integrated model rel. diff median 5.8e-05, p99 7.7e-04, max 7.1e-03
+pr5_s          vs all_s          BIT-FOR-BIT IDENTICAL
+pr5_s          vs all_o1         BIT-FOR-BIT IDENTICAL
+all_o1         vs all_o1_binT    BIT-FOR-BIT IDENTICAL
+
+# Wall times (concurrent runs, indicative only)
+master_s wall 583.71 s cpu 99% maxrss 392052 KB
+pr3a_s wall 359.13 s cpu 99% maxrss 392216 KB
+pr3_s wall 359.48 s cpu 99% maxrss 391488 KB
+pr2_s wall 595.15 s cpu 99% maxrss 390832 KB
+pr1_s wall 608.67 s cpu 99% maxrss 391836 KB
+pr4_s wall 341.82 s cpu 99% maxrss 391664 KB
+pr4_o1 wall 354.61 s cpu 99% maxrss 392016 KB
+pr5_s wall 346.78 s cpu 99% maxrss 390880 KB
+pr5_o1 wall 367.65 s cpu 99% maxrss 391832 KB
+pr6_s wall 599.10 s cpu 99% maxrss 392012 KB
+pr6_binT wall 597.84 s cpu 99% maxrss 392324 KB
+all_s wall 343.96 s cpu 99% maxrss 391092 KB
+pr6_binD wall 594.96 s cpu 99% maxrss 391608 KB
+all_o1 wall 356.86 s cpu 99% maxrss 391776 KB
+all_o1_binT wall 354.67 s cpu 99% maxrss 392028 KB

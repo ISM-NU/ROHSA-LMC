@@ -1,0 +1,151 @@
+From bd4815acf08905af6202c9f9ba2b2f2b448ba6b9 Mon Sep 17 00:00:00 2001
+From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 19:51:37 +0500
+Subject: [PATCH 5/6] Optional OpenMP parallelisation of the cost function
+
+`make OPENMP=1` builds ROHSA with OpenMP; the default build is unchanged
+(the directives are comments to a compiler without -fopenmp).
+
+Parallel loops, all over independent sky columns:
+- the model/residual/objective loop of f_g_cube_fast (one spectrum per
+  pixel, objective as a reduction);
+- the gradient/regularisation loop for each Gaussian (each pixel writes
+  only its own derivatives; the per-Gaussian sums are reductions);
+- the zeroing of deriv;
+- convolution_2D_mirror.
+
+No large array is copied per thread: the private variables are scalars
+and one spectrum-sized model array. With OMP_NUM_THREADS=1 the result is
+bit-for-bit the same as the serial build; with more threads the sums are
+grouped differently and results differ only by rounding.
+
+---
+ README.md            | 12 ++++++++++++
+ src/Makefile         |  8 ++++++++
+ src/mod_array.f90    |  3 +++
+ src/mod_optimize.f90 | 11 ++++++++++-
+ 4 files changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/README.md b/README.md
+index 852ace9..b28d64a 100644
+--- a/README.md
++++ b/README.md
+@@ -19,6 +19,18 @@ A google colab notebook is available [here!](https://github.com/antoinemarchal/R
+ 
+ Please note that if you do not use ROHSA to separate the phases of the 21 cm line (ex:CO, Lym-alpha, dust..), the hyper-parameters **`lambda_var_sig`** should be set to 0. 
+ 
++## Running on several cores
++ROHSA can optionally use several CPU cores of one machine through OpenMP:
++
++```
++cd src
++make clean
++make OPENMP=1
++OMP_NUM_THREADS=16 ./ROHSA parameters.txt
++```
++
++Without `OPENMP=1` the build is the usual serial one. With `OMP_NUM_THREADS=1` an OpenMP build gives bit-for-bit the same result as the serial build; with more threads, sums are added in a different order and the results differ only by rounding. Set `OMP_NUM_THREADS` explicitly: if it is unset, OpenMP uses every core of the machine.
++
+ ## CONTACT 
+ If you have any queries or questions related to ROHSA, please do not hesitate to contact us [here](amarchal@cita.utoronto.ca). Your feedback is welcome and important to us. 
+ 
+diff --git a/src/Makefile b/src/Makefile
+index e786c89..92da0b3 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -10,6 +10,14 @@ GFLAGS= -O2 -I/usr/local/include -ffixed-line-length-none #-fbounds-check
+ CFLAGS= -lm -g -O2 #-lcfitsio -openmp -llapack
+ # -L/Users/antoinemarchal/mylib/cfitsio-master
+ 
++# Optional OpenMP build: make OPENMP=1. Set the number of threads with
++# OMP_NUM_THREADS; with OMP_NUM_THREADS=1 the result is bit-for-bit the
++# same as the default serial build.
++ifeq ($(OPENMP),1)
++GFLAGS += -fopenmp
++CFLAGS += -fopenmp
++endif
++
+ OUT=ROHSA
+ 
+ all: blas.o lbfgsb.o linpack.o timer.o mod_constants.o mod_convert.o mod_inout.o mod_array.o mod_optimize.o mod_optimize_lym.o mod_minimize.o mod_functions.o mod_start.o mod_rohsa.o main.o
+diff --git a/src/mod_array.f90 b/src/mod_array.f90
+index ee35d36..9bbfe5c 100644
+--- a/src/mod_array.f90
++++ b/src/mod_array.f90
+@@ -26,6 +26,7 @@ contains
+     ! Only the interior points are convolved: they are the only ones kept,
+     ! and their neighbours are always inside the padded array, so no bounds
+     ! test is needed. The terms are added in the same order as before.
++    ! Columns are independent and run in parallel with OpenMP.
+     allocate(extended(dim_y+4, dim_x+4))
+     extended = 0._xp
+ 
+@@ -61,6 +62,7 @@ contains
+     
+     kc = dim_k / 2 + 1
+ 
++    !$omp parallel do private(i, m, n, acc) schedule(static)
+     do j=1, dim_x
+        do i=1, dim_y
+           acc = 0._xp
+@@ -72,6 +74,7 @@ contains
+           conv(i,j) = acc
+        end do
+     end do
++    !$omp end parallel do
+ 
+   end subroutine convolution_2D_mirror
+ 
+diff --git a/src/mod_optimize.f90 b/src/mod_optimize.f90
+index b494bcd..b25d814 100644
+--- a/src/mod_optimize.f90
++++ b/src/mod_optimize.f90
+@@ -148,7 +148,11 @@ contains
+ 
+     ! params and residual are overwritten below, and ravel_3D overwrites g
+     ! except its last n_gauss entries, so only those and deriv are zeroed.
+-    deriv = 0._xp
++    !$omp parallel do schedule(static)
++    do l=1, dim_x
++       deriv(:,:,l) = 0._xp
++    end do
++    !$omp end parallel do
+     f = 0._xp
+     model = 0._xp
+     gauss = 0._xp
+@@ -164,6 +168,8 @@ contains
+     ! Compute the objective function and the gradient
+     ! Same model and objective as myresidual and myfunc_spec, written into
+     ! residual directly instead of a temporary allocated per spectrum.
++    ! Spectra are independent: OpenMP over sky columns.
++    !$omp parallel do private(i, k, l, model) reduction(+:f) schedule(static)
+     do j=1, dim_x
+        do i=1, dim_y
+           model = 0._xp
+@@ -178,6 +184,7 @@ contains
+           end if
+        end do
+     end do
++    !$omp end parallel do
+ 
+     ! Compute the objective function and the gradient
+     do i=1, n_gauss
+@@ -199,6 +206,7 @@ contains
+        ! same result on one thread.
+        fr = 0._xp
+        gb = 0._xp
++       !$omp parallel do private(j, k, ee, rr) reduction(+:fr, gb) schedule(static)
+        do l=1, dim_x
+           do j=1, dim_y
+              !Regularization
+@@ -229,6 +237,7 @@ contains
+           end do
+           !
+        end do
++       !$omp end parallel do
+        f = f + fr
+        g((n_beta-n_gauss)+i) = g((n_beta-n_gauss)+i) + gb
+     end do        
+-- 
+2.56.0
+
