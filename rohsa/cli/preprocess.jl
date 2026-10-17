@@ -10,7 +10,7 @@ using TOML
 using Statistics
 using Astronomy
 
-const DEFAULT_CONFIG_PATH = normpath(joinpath(@__DIR__, "..", "config.toml"))
+const DEFAULT_CONFIG_PATH = normpath(joinpath(@__DIR__, "..", "..", "configs", "rohsa", "full_cube.toml"))
 
 Base.include(@__MODULE__, joinpath(@__DIR__, "..", "configs.jl"))
 Base.include(@__MODULE__, joinpath(@__DIR__, "..", "memory.jl"))
@@ -28,7 +28,7 @@ function parse_args(args)
         return load_rohsa_config(config_path)
     end
     length(args) == 2 || throw(ArgumentError("Usage: julia --project=. rohsa/cli/preprocess.jl [--config path/to/config.toml]"))
-    args[1] == "--config" || throw(ArgumentError("Unknown option $(args[1]). Only --config is accepted; edit rohsa/config.toml for run values."))
+    args[1] == "--config" || throw(ArgumentError("Unknown option $(args[1]). Only --config is accepted; edit configs/rohsa/full_cube.toml for run values."))
     config_path = args[2]
     return load_rohsa_config(config_path)
 end
@@ -74,6 +74,8 @@ function run_rohsa_preprocessing(opts)
     reuse = parse_bool(opts["reuse"])
     derive_products = parse_bool(opts["derive-products"])
     write_region_fits = parse_bool(opts["write-region-fits"])
+    write_cubes = parse_bool(opts["write-cubes"])
+    keep_dat_input = parse_bool(opts["keep-dat-input"])
     write_visuals = parse_bool(opts["write-visuals"])
     fits_extension = opts["fits-extension"]
 
@@ -171,7 +173,8 @@ function run_rohsa_preprocessing(opts)
             written = derive_rohsa_products_stage(region_dir, region.label, region_products.header,
                                                   region_products.cube, run_stage.rohsa_out, n_gauss;
                                                   run_label=run_stage.run_label,
-                                                  fits_extension=fits_extension)
+                                                  fits_extension=fits_extension,
+                                                  write_cubes=write_cubes)
             for row in written.component_rows
                 out = copy(row)
                 out["candidate_id"] = candidate_id
@@ -233,6 +236,12 @@ function run_rohsa_preprocessing(opts)
                     region.label, selected_candidate, selected_n, best_metric["selection_score"], best_metric["product_root"])
         else
             println("[", region.label, "] product derivation disabled; no ROHSA configuration selected")
+        end
+        if !keep_dat_input && isfile(region_products.dat_path)
+            # All ROHSA runs for this region finished (an error would have
+            # stopped us above), so the text copy of the input is no longer needed.
+            rm(region_products.dat_path)
+            println("[", region.label, "] removed ROHSA text input ", region_products.dat_path, " (keep_dat_input = false)")
         end
         append!(rohsa_metrics, region_rohsa_metrics)
         append!(rohsa_product_rows, region_product_rows)

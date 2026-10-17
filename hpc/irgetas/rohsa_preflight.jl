@@ -2,8 +2,8 @@ using FITSIO
 using TOML
 using Astronomy
 
-include(joinpath(@__DIR__, "..", "..", "memory.jl"))
-include(joinpath(@__DIR__, "..", "..", "configs.jl"))
+include(joinpath(@__DIR__, "..", "..", "rohsa", "memory.jl"))
+include(joinpath(@__DIR__, "..", "..", "rohsa", "configs.jl"))
 
 const IRGETAS_ZEN4_USABLE_GIB = 385_974 / 1024
 const IRGETAS_H100_USABLE_GIB = 770_000 / 1024
@@ -36,7 +36,7 @@ function inspect_config(config_path::AbstractString)
 end
 
 function main(args)
-    length(args) == 1 || error("Usage: julia --project=. rohsa/hpc/irgetas/preflight.jl CONFIG.toml")
+    length(args) == 1 || error("Usage: julia --project=. hpc/irgetas/rohsa_preflight.jl CONFIG.toml")
     result = inspect_config(args[1])
     e = result.estimate
     println("ROHSA output grid: $(result.nx) x $(result.ny) x $(result.nv)")

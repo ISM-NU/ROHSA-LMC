@@ -214,7 +214,8 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
                                             header, params, components, data_cube;
                                             n_gauss::Int=length(components),
                                             run_label::AbstractString="",
-                                            fits_extension::AbstractString=".fits")
+                                            fits_extension::AbstractString=".fits",
+                                            write_cubes::Bool=true)
     nv = size(data_cube, 3)
     velocities_kms, dv_kms = velocity_axis_kms(header, nv)
     file_prefix = isempty(run_label) ? "rohsa_n$(n_gauss)" : run_label
@@ -251,10 +252,14 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
         width_groups[string(row["width_group"])] .+= comp
         temperature_groups[string(row["td_group"])] .+= comp
 
-        component_path = joinpath(crop_dir, "$(file_prefix)_component_g$(g)$(fits_ext)")
-        write_fits(component_path, comp; header=header)
-        component_paths[g] = component_path
-        cube_paths["component_g$(g)"] = component_path
+        if write_cubes
+            component_path = joinpath(crop_dir, "$(file_prefix)_component_g$(g)$(fits_ext)")
+            write_fits(component_path, comp; header=header)
+            component_paths[g] = component_path
+            cube_paths["component_g$(g)"] = component_path
+        else
+            component_paths[g] = ""
+        end
 
         amp = Float32.(@view params[3g - 2, :, :])
         mu_chan = @view params[3g - 1, :, :]
@@ -278,22 +283,24 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
         end
     end
 
-    model_path = joinpath(crop_dir, "$(file_prefix)_model$(fits_ext)")
-    # Duplicate frequently inspected cubes at the region root for compatibility
-    # with earlier probe outputs, while keeping the organized rohsa/n*/ tree.
-    write_fits(model_path, model; header=header)
-    write_fits(joinpath(cube_dir, "$(file_prefix)_model$(fits_ext)"), model; header=header)
-    cube_paths["model"] = model_path
+    # Cubes are written once, at the region root, and only when asked for:
+    # every one of them can be rebuilt from the ROHSA parameter file.
+    model_path = write_cubes ? joinpath(crop_dir, "$(file_prefix)_model$(fits_ext)") : ""
+    if write_cubes
+        write_fits(model_path, model; header=header)
+        cube_paths["model"] = model_path
+    end
 
     group_paths = Dict{String, String}()
     group_nhi = Dict{String, Matrix{Float64}}()
     all_groups = merge(width_groups, temperature_groups)
     for (group, cube) in all_groups
-        path = joinpath(crop_dir, "$(file_prefix)_$(group)_group$(fits_ext)")
-        write_fits(path, cube; header=header)
-        group_paths[group] = path
-        write_fits(joinpath(cube_dir, "$(file_prefix)_$(group)_group$(fits_ext)"), cube; header=header)
-        cube_paths["$(group)_group"] = path
+        if write_cubes
+            path = joinpath(crop_dir, "$(file_prefix)_$(group)_group$(fits_ext)")
+            write_fits(path, cube; header=header)
+            group_paths[group] = path
+            cube_paths["$(group)_group"] = path
+        end
         nhi = column_density_map(cube, dv_kms)
         group_nhi[group] = nhi
         map_path = joinpath(map_dir, "$(file_prefix)_$(group)_nhi_cm2$(fits_ext)")
@@ -306,9 +313,11 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
     residual = Float32.(Float64.(model) .- Float64.(data_cube))
     residual_moment = moment0(model) .- moment0(data_cube)
     residual_nhi = model_nhi .- data_nhi
-    residual_cube_path = joinpath(cube_dir, "$(file_prefix)_residual_cube$(fits_ext)")
-    write_fits(residual_cube_path, residual; header=header)
-    cube_paths["residual"] = residual_cube_path
+    if write_cubes
+        residual_cube_path = joinpath(cube_dir, "$(file_prefix)_residual_cube$(fits_ext)")
+        write_fits(residual_cube_path, residual; header=header)
+        cube_paths["residual"] = residual_cube_path
+    end
     # Residual convention is model - data throughout the report and products.
     for (name, data) in (
         "model_nhi_cm2" => model_nhi,

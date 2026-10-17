@@ -8,7 +8,7 @@ the ROHSA estimator.
 
 - `upstream/ROHSA/` is the nested upstream ROHSA source tree. Keep it separate
   from project adapter code.
-- `config.toml` is the editable run configuration.
+- `../configs/rohsa/` holds the editable run configurations (default `full_cube.toml`).
 - `configs.jl` loads the TOML config and serializes the Fortran parameter file.
 - `inputs.jl` writes full-cube or explicit-crop FITS, ROHSA `.dat`, and
   RMS-map inputs.
@@ -33,7 +33,7 @@ Run the main preprocessing wrapper from the repository root:
 julia --project=. rohsa/cli/preprocess.jl
 ```
 
-The default config is `rohsa/config.toml`. It describes the exact
+The default config is `configs/rohsa/full_cube.toml`. It describes the exact
 full-resolution input intent, but the wrapper now runs a memory preflight before
 writing large `.dat` files or invoking ROHSA. On laptops, the full-resolution
 LMC cube is expected to exceed memory by a large margin and will be rejected
@@ -43,10 +43,10 @@ For a laptop-safe full-footprint probe, use the explicit reduced-resolution
 config:
 
 ```bash
-julia --project=. rohsa/cli/preprocess.jl --config rohsa/config.laptop.toml
+julia --project=. rohsa/cli/preprocess.jl --config configs/rohsa/full_cube_laptop_stride8.toml
 ```
 
-`config.laptop.toml` keeps the full sky footprint but sets
+`full_cube_laptop_stride8.toml` keeps the full sky footprint but sets
 `spatial_stride = 8`, disables immediate product reconstruction, and disables
 visual generation. This is not equivalent to the paper's full-resolution
 whole-cube fit; it is a controlled way to exercise ROHSA on the same footprint
@@ -64,7 +64,7 @@ the only automatic ROHSA source.
 The wrapper derives ROHSA products only. It does not run VGT and does not
 compare ROHSA products against default VGT outputs.
 
-Edit `rohsa/config.toml` to choose the input cube, output directory, crop,
+Edit `configs/rohsa/full_cube.toml` to choose the input cube, output directory, crop,
 visual-output setting, FITS output extension, and every ROHSA parameter. The
 checked-in values mirror `upstream/ROHSA/ROHSApy.ipynb`; there is no
 project-specific hidden preset.
@@ -79,7 +79,7 @@ To use a different config file:
 julia --project=. rohsa/cli/preprocess.jl --config path/to/rohsa.toml
 ```
 
-When several `n_gauss` values are supplied in `config.toml`, the wrapper runs
+When several `n_gauss` values are supplied in the config, the wrapper runs
 every candidate, keeps every candidate product and trace, and auto-selects one
 result. The full candidate list is written to `rohsa_fit_metrics.csv` and
 `rohsa_product_paths.csv`; the chosen products are written separately to
@@ -89,7 +89,7 @@ result. The full candidate list is written to `rohsa_fit_metrics.csv` and
 ## Auto-Config
 
 ROHSA auto-config is optional and stays inside preprocessing. Enable it with
-`[auto_config] enabled = true` in `rohsa/config.toml`. The normal `[rohsa]`
+`[auto_config] enabled = true` in `configs/rohsa/full_cube.toml`. The normal `[rohsa]`
 table remains the base config; any auto-config axis that is omitted uses the
 single value from `[rohsa]`.
 

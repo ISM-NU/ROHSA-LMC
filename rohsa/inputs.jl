@@ -116,11 +116,26 @@ function update_region_header!(header, region::InputRegion)
     return header
 end
 
-function robust_channel_difference_noise(cube)
+function robust_channel_difference_noise(cube; max_samples::Int=2_000_000)
     # Adjacent-channel MAD gives a scalar RMS estimate without assuming the cube
     # is line-free; sqrt(2) converts difference noise back to per-channel noise.
-    channel_diffs = vec(diff(Float64.(cube); dims=3))
-    vals = [v for v in channel_diffs if isfinite(v)]
+    # Call this on the raw cube, before the ROHSA zero-clipping: pairs involving
+    # a non-finite or exactly-zero voxel are mask/fill, not noise, and counting
+    # them (or clipped negatives) biases sigma low by about an order of magnitude.
+    nx, ny, nv = size(cube)
+    total = nx * ny * max(nv - 1, 0)
+    total == 0 && return NaN
+    step = max(1, cld(total, max_samples))
+    diffs = CartesianIndices((nx, ny, nv - 1))
+    vals = Float64[]
+    sizehint!(vals, min(total, max_samples))
+    for n in 1:step:total
+        i = diffs[n]
+        a = cube[i]
+        b = cube[i[1], i[2], i[3] + 1]
+        (isfinite(a) && isfinite(b) && a != 0 && b != 0) || continue
+        push!(vals, Float64(b) - Float64(a))
+    end
     isempty(vals) && return NaN
     med = median(vals)
     sigma = median(abs.(vals .- med)) / MAD_NORMAL / sqrt(2)
@@ -172,7 +187,7 @@ function estimate_streamed_noise(input::AbstractString, region::InputRegion; max
                 counter % sample_step == 0 || continue
                 a = row[x, 1, k]
                 b = row[x, 1, k + 1]
-                if isfinite(a) && isfinite(b)
+                if isfinite(a) && isfinite(b) && a != 0 && b != 0
                     push!(vals, Float64(b) - Float64(a))
                 end
             end
@@ -235,10 +250,10 @@ function write_region_products(input::AbstractString, header, region::InputRegio
     # stream directly to ROHSA .dat to avoid a second full cube in memory.
     cube = retain_cube || write_region_fits ? read_region_cube(input, region) : nothing
     if cube !== nothing
+        sigma = robust_channel_difference_noise(cube)  # raw cube, before clipping
         cube .= map(v -> isfinite(v) && v > 0 ? v : 0.0f0, cube)
         write_region_fits && Astronomy.write_fits(fits_path, cube; header=region_header)
         write_cube_dat(dat_path, cube)
-        sigma = robust_channel_difference_noise(cube)
     else
         write_streamed_cube_dat(input, dat_path, region)
         sigma = estimate_streamed_noise(input, region)

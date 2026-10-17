@@ -1,7 +1,7 @@
 # ROHSA config loading and parameter-file serialization.
 #
 # Provenance:
-# - `rohsa/config.toml` starts from rohsa/upstream/ROHSA/ROHSApy.ipynb,
+# - `configs/rohsa/full_cube.toml` starts from rohsa/upstream/ROHSA/ROHSApy.ipynb,
 #   parameter cell around the notebook section "Generate files for ROHSA with
 #   your data".
 
@@ -16,6 +16,8 @@ const ROHSA_CONFIG_KEYS = Dict(
     "write_visuals" => "write-visuals",
     "derive_products" => "derive-products",
     "write_region_fits" => "write-region-fits",
+    "write_cubes" => "write-cubes",
+    "keep_dat_input" => "keep-dat-input",
     "preflight_only" => "preflight-only",
     "force_full_cube" => "force-full-cube",
     "memory_gb" => "memory-gb",
@@ -72,6 +74,12 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     "spatial-stride" => "1",
     "derive-products" => "true",
     "write-region-fits" => "true",
+    # 3D model/component/group cubes are rebuildable from the parameter file
+    # (2.6 GB each at 2048^2); the 2D maps are always written.
+    "write-cubes" => "false",
+    # The text copy of the input cube (~20 GB at 2048^2) is deleted after the
+    # region's ROHSA runs succeed unless this is true.
+    "keep-dat-input" => "false",
     "preflight-only" => "false",
     "force-full-cube" => "false",
     "memory-gb" => "auto",

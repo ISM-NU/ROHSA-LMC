@@ -64,6 +64,22 @@ using Test
         @test products.fit_row["total_model_over_data"] ≈ 1.0
         @test products.group_nhi["td_lt_500k_fraction"] == ones(2, 2) .* (products.group_nhi["td_lt_500k"][1, 1] / products.model_nhi[1, 1])
 
+        # Cubes off (the CLI default): maps and metrics only, no 3D files.
+        mktempdir() do slim_dir
+            slim = Astronomy.write_rohsa_decomposition_products(
+                slim_dir, "region", header, params, components, data_cube;
+                n_gauss=2, write_cubes=false,
+            )
+            @test isempty(slim.cube_paths)
+            @test slim.model_path == ""
+            @test all(isempty, values(slim.component_paths))
+            @test isfile(slim.map_paths["component_g1_nhi_cm2"])
+            @test isfile(slim.map_paths["model_nhi_cm2"])
+            @test isfile(slim.map_paths["td_lt_500k_fraction"])
+            @test slim.fit_row["total_model_over_data"] ≈ 1.0
+            @test isempty(filter(f -> endswith(f, ".fits") && occursin("_group", f), readdir(slim_dir)))
+        end
+
         labeled = Astronomy.write_rohsa_decomposition_products(
             dir,
             "region",

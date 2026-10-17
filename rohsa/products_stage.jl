@@ -1,6 +1,6 @@
 function derive_rohsa_products_stage(region_dir, region_label::AbstractString, header, data_cube,
                                      rohsa_out::AbstractString, n_gauss::Int; run_label::AbstractString="",
-                                     fits_extension::AbstractString=".fits")
+                                     fits_extension::AbstractString=".fits", write_cubes::Bool=false)
     params = Astronomy.read_rohsa_parameters(rohsa_out, n_gauss, size(data_cube, 1), size(data_cube, 2))
     components = Astronomy.reconstruct_rohsa_components(params, size(data_cube, 3))
     products = Astronomy.write_rohsa_decomposition_products(
@@ -13,6 +13,7 @@ function derive_rohsa_products_stage(region_dir, region_label::AbstractString, h
         n_gauss=n_gauss,
         run_label=run_label,
         fits_extension=fits_extension,
+        write_cubes=write_cubes,
     )
     product_label = isempty(run_label) ? "rohsa_n$(n_gauss)" : run_label
     trace_path = joinpath(region_dir, "$(product_label)_products_trace.toml")
