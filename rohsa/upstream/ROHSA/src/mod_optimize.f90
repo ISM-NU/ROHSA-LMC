@@ -147,15 +147,20 @@ contains
     allocate(image_amp(dim_y, dim_x), image_mu(dim_y, dim_x), image_sig(dim_y, dim_x))
     allocate(model(dim_v))
 
-    deriv = 0._xp
+    ! Only arrays that are accumulated into are zeroed: params and residual
+    ! are overwritten below, and ravel_3D overwrites g except its last
+    ! n_gauss entries (project change; the serial fills were ~7% of runtime).
+    !$omp parallel do schedule(static)
+    do l=1, dim_x
+       deriv(:,:,l) = 0._xp
+    end do
+    !$omp end parallel do
     f = 0._xp
-    g = 0._xp
-    residual = 0._xp    
-    params = 0._xp
     model = 0._xp
     gauss = 0._xp
-    
+
     n_beta = (3*n_gauss * dim_y * dim_x) + n_gauss
+    g((n_beta-n_gauss)+1:n_beta) = 0._xp
 
     call unravel_3D(beta, params, 3*n_gauss, dim_y, dim_x)    
     do i=1,n_gauss
@@ -184,10 +189,6 @@ contains
     ! Compute the objective function and the gradient
     do i=1, n_gauss
        !
-       conv_amp = 0._xp; conv_mu = 0._xp; conv_sig = 0._xp
-       conv_conv_amp = 0._xp; conv_conv_mu = 0._xp; conv_conv_sig = 0._xp
-       image_amp = 0._xp; image_mu = 0._xp; image_sig = 0._xp
-       
        image_amp = params(1+(3*(i-1)),:,:)
        image_mu = params(2+(3*(i-1)),:,:)
        image_sig = params(3+(3*(i-1)),:,:)

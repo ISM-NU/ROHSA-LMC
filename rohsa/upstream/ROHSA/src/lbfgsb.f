@@ -1445,20 +1445,20 @@ c     In the following loop we determine for each variable its bound
 c        status and its breakpoint, and update p accordingly.
 c        Smallest breakpoint is identified.
 
+c     Two passes (project change for OpenMP): the parallel pass
+c     classifies each variable and accumulates f1 and p; the serial
+c     pass builds the breakpoint and free lists in index order, so
+c     iorder, t, nbreak, nfree, ibkmin and bnded match the original
+c     single loop. Only the summation order of f1 and p changes.
+!$omp parallel do private(i,j,neggi,tl,tu,xlower,xupper,pointr)
+!$omp+ reduction(+:f1,p) schedule(static)
       do 50 i = 1, n 
          neggi = -g(i)      
          if (iwhere(i) .ne. 3 .and. iwhere(i) .ne. -1) then
-c             if x(i) is not a constant and has bounds,
-c             compute the difference between x(i) and its bounds.
             if (nbd(i) .le. 2) tl = x(i) - l(i)
             if (nbd(i) .ge. 2) tu = u(i) - x(i)
-
-c           If a variable is close enough to a bound
-c             we treat it as at bound.
             xlower = nbd(i) .le. 2 .and. tl .le. zero
             xupper = nbd(i) .ge. 2 .and. tu .le. zero
-
-c              reset iwhere(i).
             iwhere(i) = 0
             if (xlower) then
                if (neggi .le. zero) iwhere(i) = 1
@@ -1474,39 +1474,42 @@ c              reset iwhere(i).
          else
             d(i) = neggi
             f1 = f1 - neggi*neggi
-c             calculate p := p - W'e_i* (g_i).
             do 40 j = 1, col
                p(j) = p(j) +  wy(i,pointr)* neggi
                p(col + j) = p(col + j) + ws(i,pointr)*neggi
                pointr = mod(pointr,m) + 1
   40        continue 
-            if (nbd(i) .le. 2 .and. nbd(i) .ne. 0
-     +                        .and. neggi .lt. zero) then
-c                                 x(i) + d(i) is bounded; compute t(i).
-               nbreak = nbreak + 1
-               iorder(nbreak) = i
-               t(nbreak) = tl/(-neggi)
-               if (nbreak .eq. 1 .or. t(nbreak) .lt. bkmin) then
-                  bkmin = t(nbreak)
-                  ibkmin = nbreak
-               endif
-            else if (nbd(i) .ge. 2 .and. neggi .gt. zero) then
-c                                 x(i) + d(i) is bounded; compute t(i).
-               nbreak = nbreak + 1
-               iorder(nbreak) = i
-               t(nbreak) = tu/neggi
-               if (nbreak .eq. 1 .or. t(nbreak) .lt. bkmin) then
-                  bkmin = t(nbreak)
-                  ibkmin = nbreak
-               endif
-            else
-c                x(i) + d(i) is not bounded.
-               nfree = nfree - 1
-               iorder(nfree) = i
-               if (abs(neggi) .gt. zero) bnded = .false.
-            endif
          endif
   50  continue 
+!$omp end parallel do
+      do 55 i = 1, n
+         if (iwhere(i) .ne. 0 .and. iwhere(i) .ne. -1) goto 55
+         neggi = -g(i)
+         if (nbd(i) .le. 2) tl = x(i) - l(i)
+         if (nbd(i) .ge. 2) tu = u(i) - x(i)
+         if (nbd(i) .le. 2 .and. nbd(i) .ne. 0
+     +                     .and. neggi .lt. zero) then
+            nbreak = nbreak + 1
+            iorder(nbreak) = i
+            t(nbreak) = tl/(-neggi)
+            if (nbreak .eq. 1 .or. t(nbreak) .lt. bkmin) then
+               bkmin = t(nbreak)
+               ibkmin = nbreak
+            endif
+         else if (nbd(i) .ge. 2 .and. neggi .gt. zero) then
+            nbreak = nbreak + 1
+            iorder(nbreak) = i
+            t(nbreak) = tu/neggi
+            if (nbreak .eq. 1 .or. t(nbreak) .lt. bkmin) then
+               bkmin = t(nbreak)
+               ibkmin = nbreak
+            endif
+         else
+            nfree = nfree - 1
+            iorder(nfree) = i
+            if (abs(neggi) .gt. zero) bnded = .false.
+         endif
+  55  continue
  
 c     The indices of the nonzero components of d are now stored
 c       in iorder(1),...,iorder(nbreak) and iorder(nfree),...,iorder(n).

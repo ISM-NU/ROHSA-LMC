@@ -52,5 +52,13 @@ gradient, and in the L-BFGS-B internals (`cauchy`, `formk`, `subsm`, `ddot`).
 | OpenMP gradient only | 371 s |
 | + interior-only parallel convolution | 339 s |
 | + integer powers | 256 s |
+| + parallel L-BFGS-B `cauchy` main loop, parallel long `ddot`/`dcopy` | 240 s |
+| + no redundant zero-fills in `f_g_cube_fast` | 214 s |
 
-Next serial hot spot: L-BFGS-B internals (~45% of main-thread samples).
+The `cauchy` split (parallel classification and sums, serial breakpoint list
+in index order) and the zero-fill removal are bitwise identical at 1 thread
+(64² crop). At 12 threads the per-pixel integrated model differs from the
+previous build by median 1e-4, p99 5e-3 relative (summation order).
+
+Remaining main-thread time: L-BFGS-B `formk`, `subsm`, `cmprlb`, the heap
+search in `cauchy` (inherently sequential).

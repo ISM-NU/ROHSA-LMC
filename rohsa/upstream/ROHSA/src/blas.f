@@ -120,6 +120,14 @@ c
       integer i,incx,incy,ix,iy,m,mp1,n
 c
       if(n.le.0)return
+      if(n.gt.100000.and.incx.eq.1.and.incy.eq.1) then
+!$omp parallel do schedule(static)
+        do 5 i = 1,n
+          dy(i) = dx(i)
+    5   continue
+!$omp end parallel do
+        return
+      endif
       if(incx.eq.1.and.incy.eq.1)go to 20
 c
 c        code for unequal increments or equal increments
@@ -174,6 +182,17 @@ c
       ddot = 0.0d0
       dtemp = 0.0d0
       if(n.le.0)return
+c     project change: long unit-stride vectors in parallel (L-BFGS-B
+c     calls this on vectors of all parameters)
+      if(n.gt.100000.and.incx.eq.1.and.incy.eq.1) then
+!$omp parallel do reduction(+:dtemp) schedule(static)
+        do 5 i = 1,n
+          dtemp = dtemp + dx(i)*dy(i)
+    5   continue
+!$omp end parallel do
+        ddot = dtemp
+        return
+      endif
       if(incx.eq.1.and.incy.eq.1)go to 20
 c
 c        code for unequal increments or equal increments
