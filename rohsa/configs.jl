@@ -17,7 +17,7 @@ const ROHSA_CONFIG_KEYS = Dict(
     "derive_products" => "derive-products",
     "write_region_fits" => "write-region-fits",
     "write_cubes" => "write-cubes",
-    "keep_dat_input" => "keep-dat-input",
+    "keep_rohsa_input" => "keep-rohsa-input",
     "preflight_only" => "preflight-only",
     "force_full_cube" => "force-full-cube",
     "memory_gb" => "memory-gb",
@@ -79,7 +79,7 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     "write-cubes" => "false",
     # The text copy of the input cube (~20 GB at 2048^2) is deleted after the
     # region's ROHSA runs succeed unless this is true.
-    "keep-dat-input" => "false",
+    "keep-rohsa-input" => "false",
     "preflight-only" => "false",
     "force-full-cube" => "false",
     "memory-gb" => "auto",
@@ -152,12 +152,12 @@ function parse_bool(raw)
     throw(ArgumentError("Expected boolean string, got $(repr(raw))"))
 end
 
-function write_rohsa_parameters(path, dat_path, rms_path, out_path, timeout_path, n_gauss::Int, opts)
+function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_path, n_gauss::Int, opts)
     open(path, "w") do io
         # Upstream ROHSA consumes a Fortran namelist. Numeric real values are
         # emitted with d0 exponents to match the original examples.
         println(io, "&user_parameters")
-        println(io, "    filename = '$(abspath(dat_path))'")
+        println(io, "    filename = '$(abspath(input_path))'")
         println(io, "    ,fileout = '$(abspath(out_path))'")
         println(io, "    ,timeout = '$(abspath(timeout_path))'")
         println(io, "    ,filename_noise = '$(abspath(rms_path))'")

@@ -243,6 +243,14 @@ c
       integer i,incx,m,mp1,n,nincx
 c
       if( n.le.0 .or. incx.le.0 )return
+      if(n.gt.100000.and.incx.eq.1) then
+!$omp parallel do schedule(static)
+        do 5 i = 1,n
+          dx(i) = da*dx(i)
+    5   continue
+!$omp end parallel do
+        return
+      endif
       if(incx.eq.1)go to 20
 c
 c        code for increment not equal to 1

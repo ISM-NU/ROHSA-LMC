@@ -1745,31 +1745,44 @@ c     ************
  
       integer          i,j,k,pointr
       double precision a1,a2
+c     Project change for OpenMP: slot ip(j) and coefficients b1/b2 of
+c     each correction pair, so the r(i) loop can run per variable.
+      integer          ip(m)
+      double precision b1(m), b2(m)
 
       if (.not. cnstnd .and. col .gt. 0) then 
+!$omp parallel do schedule(static) if(n .gt. 100000)
          do 26 i = 1, n
             r(i) = -g(i)
   26     continue
+!$omp end parallel do
       else
+!$omp parallel do private(i,k) schedule(static) if(nfree .gt. 100000)
          do 30 i = 1, nfree
             k = index(i)
             r(i) = -theta*(z(k) - x(k)) - g(k)
   30     continue
+!$omp end parallel do
          call bmv(m,sy,wt,col,wa(2*m+1),wa(1),info)
          if (info .ne. 0) then
             info = -8
             return
          endif
          pointr = head 
-         do 34 j = 1, col
-            a1 = wa(j)
-            a2 = theta*wa(col + j)
-            do 32 i = 1, nfree
-               k = index(i)
-               r(i) = r(i) + wy(k,pointr)*a1 + ws(k,pointr)*a2
-  32        continue
+         do 31 j = 1, col
+            ip(j) = pointr
+            b1(j) = wa(j)
+            b2(j) = theta*wa(col + j)
             pointr = mod(pointr,m) + 1
+  31     continue
+!$omp parallel do private(i,j,k) schedule(static) if(nfree .gt. 10000)
+         do 34 i = 1, nfree
+            k = index(i)
+            do 32 j = 1, col
+               r(i) = r(i) + wy(k,ip(j))*b1(j) + ws(k,ip(j))*b2(j)
+  32        continue
   34     continue
+!$omp end parallel do
       endif
 
       return
@@ -1974,6 +1987,9 @@ c     ************
       integer          m2,ipntr,jpntr,iy,is,jy,js,is1,js1,k1,i,k,
      +                 col2,pbegin,pend,dbegin,dend,upcl
       double precision ddot,temp1,temp2,temp3,temp4
+      integer          pointr, ip(m)
+      double precision a1(m), a2(m), a3(m), a4(m), b1(m,m), b2(m,m),
+     +                 b3(m,m), b4(m,m), c1(m,m), c3(m,m)
       double precision one,zero
       parameter        (one=1.0d0,zero=0.0d0)
 
@@ -2003,44 +2019,51 @@ c          put new rows in blocks (1,1), (2,1) and (2,2).
          is = m + col
          ipntr = head + col - 1
          if (ipntr .gt. m) ipntr = ipntr - m    
-         jpntr = head
+c     Project change for OpenMP: ip(jy) is the slot of the jy-th pair.
+c     Each pass over k accumulates all col sums of the original loops,
+c     each sum still in k order.
+         pointr = head
+         do 12 jy = 1, col
+            ip(jy) = pointr
+            a1(jy) = zero
+            a2(jy) = zero
+            a3(jy) = zero
+            a4(jy) = zero
+            pointr = mod(pointr,m) + 1
+  12     continue
+c             compute row 'col' of Y'ZZ'Y (a1) and column 'col' of R_z (a4)
+!$omp parallel do private(k,k1,jy) reduction(+:a1,a4) schedule(static)
+!$omp+ if(pend-pbegin .gt. 10000)
+         do 15 k = pbegin, pend
+            k1 = ind(k)
+            do 14 jy = 1, col
+               a1(jy) = a1(jy) + wy(k1,ipntr)*wy(k1,ip(jy))
+               a4(jy) = a4(jy) + ws(k1,ip(jy))*wy(k1,ipntr)
+  14        continue
+  15     continue
+!$omp end parallel do
+c             compute row 'col' of L_a and S'AA'S (a3, a2)
+!$omp parallel do private(k,k1,jy) reduction(+:a2,a3) schedule(static)
+!$omp+ if(dend-dbegin .gt. 10000)
+         do 16 k = dbegin, dend
+            k1 = ind(k)
+            do 17 jy = 1, col
+               a2(jy) = a2(jy) + ws(k1,ipntr)*ws(k1,ip(jy))
+               a3(jy) = a3(jy) + ws(k1,ipntr)*wy(k1,ip(jy))
+  17        continue
+  16     continue
+!$omp end parallel do
          do 20 jy = 1, col
             js = m + jy
-            temp1 = zero
-            temp2 = zero
-            temp3 = zero
-c             compute element jy of row 'col' of Y'ZZ'Y
-            do 15 k = pbegin, pend
-               k1 = ind(k)
-               temp1 = temp1 + wy(k1,ipntr)*wy(k1,jpntr)
-  15        continue
-c             compute elements jy of row 'col' of L_a and S'AA'S
-            do 16 k = dbegin, dend
-               k1 = ind(k)
-               temp2 = temp2 + ws(k1,ipntr)*ws(k1,jpntr)
-               temp3 = temp3 + ws(k1,ipntr)*wy(k1,jpntr)
-  16        continue
-            wn1(iy,jy) = temp1
-            wn1(is,js) = temp2
-            wn1(is,jy) = temp3
-            jpntr = mod(jpntr,m) + 1
+            wn1(iy,jy) = a1(jy)
+            wn1(is,js) = a2(jy)
+            wn1(is,jy) = a3(jy)
   20     continue
- 
 c          put new column in block (2,1).
          jy = col       
-         jpntr = head + col - 1
-         if (jpntr .gt. m) jpntr = jpntr - m
-         ipntr = head
          do 30 i = 1, col
             is = m + i
-            temp3 = zero
-c             compute element i of column 'col' of R_z
-            do 25 k = pbegin, pend
-               k1 = ind(k)
-               temp3 = temp3 + ws(k1,ipntr)*wy(k1,jpntr)
-  25        continue 
-            ipntr = mod(ipntr,m) + 1
-            wn1(is,jy) = temp3
+            wn1(is,jy) = a4(i)
   30     continue
          upcl = col - 1
       else
@@ -2049,56 +2072,72 @@ c             compute element i of column 'col' of R_z
  
 c       modify the old parts in blocks (1,1) and (2,2) due to changes
 c       in the set of free variables.
-      ipntr = head      
+      pointr = head
+      do 41 iy = 1, upcl
+         ip(iy) = pointr
+         pointr = mod(pointr,m) + 1
+  41  continue
+      do 43 jy = 1, m
+         do 42 iy = 1, m
+            b1(iy,jy) = zero
+            b2(iy,jy) = zero
+            b3(iy,jy) = zero
+            b4(iy,jy) = zero
+            c1(iy,jy) = zero
+            c3(iy,jy) = zero
+  42     continue
+  43  continue
+c     Project change for OpenMP: entering variables (b1, b2, c1) and
+c     leaving variables (b3, b4, c3), all pairs per pass over k.
+!$omp parallel do private(k,k1,iy,jy) reduction(+:b1,b2,c1)
+!$omp+ schedule(static) if(nenter .gt. 1000)
+      do 35 k = 1, nenter
+         k1 = indx2(k)
+         do 34 iy = 1, upcl
+            do 33 jy = 1, iy
+               b1(iy,jy) = b1(iy,jy) + wy(k1,ip(iy))*wy(k1,ip(jy))
+               b2(iy,jy) = b2(iy,jy) + ws(k1,ip(iy))*ws(k1,ip(jy))
+  33        continue
+            do 32 jy = 1, upcl
+               c1(iy,jy) = c1(iy,jy) + ws(k1,ip(iy))*wy(k1,ip(jy))
+  32        continue
+  34     continue
+  35  continue
+!$omp end parallel do
+!$omp parallel do private(k,k1,iy,jy) reduction(+:b3,b4,c3)
+!$omp+ schedule(static) if(n-ileave .gt. 1000)
+      do 39 k = ileave, n
+         k1 = indx2(k)
+         do 38 iy = 1, upcl
+            do 37 jy = 1, iy
+               b3(iy,jy) = b3(iy,jy) + wy(k1,ip(iy))*wy(k1,ip(jy))
+               b4(iy,jy) = b4(iy,jy) + ws(k1,ip(iy))*ws(k1,ip(jy))
+  37        continue
+            do 36 jy = 1, upcl
+               c3(iy,jy) = c3(iy,jy) + ws(k1,ip(iy))*wy(k1,ip(jy))
+  36        continue
+  38     continue
+  39  continue
+!$omp end parallel do
       do 45 iy = 1, upcl
          is = m + iy
-         jpntr = head
          do 40 jy = 1, iy
             js = m + jy
-            temp1 = zero
-            temp2 = zero
-            temp3 = zero
-            temp4 = zero
-            do 35 k = 1, nenter
-               k1 = indx2(k)
-               temp1 = temp1 + wy(k1,ipntr)*wy(k1,jpntr)
-               temp2 = temp2 + ws(k1,ipntr)*ws(k1,jpntr)
-  35        continue
-            do 36 k = ileave, n
-               k1 = indx2(k)
-               temp3 = temp3 + wy(k1,ipntr)*wy(k1,jpntr)
-               temp4 = temp4 + ws(k1,ipntr)*ws(k1,jpntr)
-  36        continue
-            wn1(iy,jy) = wn1(iy,jy) + temp1 - temp3 
-            wn1(is,js) = wn1(is,js) - temp2 + temp4 
-            jpntr = mod(jpntr,m) + 1
+            wn1(iy,jy) = wn1(iy,jy) + b1(iy,jy) - b3(iy,jy) 
+            wn1(is,js) = wn1(is,js) - b2(iy,jy) + b4(iy,jy) 
   40     continue
-         ipntr = mod(ipntr,m) + 1
   45  continue
  
 c       modify the old parts in block (2,1).
-      ipntr = head      
       do 60 is = m + 1, m + upcl
-         jpntr = head 
+         iy = is - m
          do 55 jy = 1, upcl
-            temp1 = zero
-            temp3 = zero
-            do 50 k = 1, nenter
-               k1 = indx2(k)
-               temp1 = temp1 + ws(k1,ipntr)*wy(k1,jpntr)
-  50        continue
-            do 51 k = ileave, n
-               k1 = indx2(k)
-               temp3 = temp3 + ws(k1,ipntr)*wy(k1,jpntr)
-  51        continue
-         if (is .le. jy + m) then
-               wn1(is,jy) = wn1(is,jy) + temp1 - temp3  
+            if (is .le. jy + m) then
+               wn1(is,jy) = wn1(is,jy) + c1(iy,jy) - c3(iy,jy)  
             else
-               wn1(is,jy) = wn1(is,jy) - temp1 + temp3  
+               wn1(is,jy) = wn1(is,jy) - c1(iy,jy) + c3(iy,jy)  
             endif
-            jpntr = mod(jpntr,m) + 1
   55     continue
-         ipntr = mod(ipntr,m) + 1
   60  continue
  
 c     Form the upper triangle of WN = [D+Y' ZZ'Y/theta   -L_a'+R_z' ] 
@@ -2963,6 +3002,8 @@ c     ************
       parameter        (one=1.0d0,zero=0.0d0)
 
       sbgnrm = zero
+!$omp parallel do private(i,gi) reduction(max:sbgnrm) schedule(static)
+!$omp+ if(n .gt. 100000)
       do 15 i = 1, n
         gi = g(i)
         if (nbd(i) .ne. 0) then
@@ -2974,6 +3015,7 @@ c     ************
         endif
         sbgnrm = max(sbgnrm,abs(gi))
   15  continue
+!$omp end parallel do
 
       return
 
@@ -3175,26 +3217,39 @@ c     ************
       double precision alpha, xk, dk, temp1, temp2 
       double precision one,zero
       parameter        (one=1.0d0,zero=0.0d0)
-c
       double precision dd_p
+c     Project change for OpenMP: ip(i) is the memory slot of the i-th
+c     correction pair; t1/t2 hold one partial sum per pair.
+      integer          ip(m)
+      double precision t1(m), t2(m)
 
       if (nsub .le. 0) return
       if (iprint .ge. 99) write (6,1001)
 
 c     Compute wv = W'Zd.
 
+c     Project change for OpenMP: one pass over the free variables
+c     accumulates all 2*col sums; each sum still runs over j in order.
       pointr = head 
-      do 20 i = 1, col
-         temp1 = zero
-         temp2 = zero
-         do 10 j = 1, nsub
-            k = ind(j)
-            temp1 = temp1 + wy(k,pointr)*d(j)
-            temp2 = temp2 + ws(k,pointr)*d(j)
-  10     continue
-         wv(i) = temp1
-         wv(col + i) = theta*temp2
+      do 5 i = 1, col
+         ip(i) = pointr
+         t1(i) = zero
+         t2(i) = zero
          pointr = mod(pointr,m) + 1
+   5  continue
+!$omp parallel do private(i,j,k) reduction(+:t1,t2) schedule(static)
+!$omp+ if(nsub .gt. 10000)
+      do 10 j = 1, nsub
+         k = ind(j)
+         do 9 i = 1, col
+            t1(i) = t1(i) + wy(k,ip(i))*d(j)
+            t2(i) = t2(i) + ws(k,ip(i))*d(j)
+   9     continue
+  10  continue
+!$omp end parallel do
+      do 20 i = 1, col
+         wv(i) = t1(i)
+         wv(col + i) = theta*t2(i)
   20  continue
  
 c     Compute wv:=K^(-1)wv.
@@ -3211,16 +3266,19 @@ c     Compute wv:=K^(-1)wv.
  
 c     Compute d = (1/theta)d + (1/theta**2)Z'W wv.
  
-      pointr = head
-      do 40 jy = 1, col
-         js = col + jy
-         do 30 i = 1, nsub
-            k = ind(i)
-            d(i) = d(i) + wy(k,pointr)*wv(jy)/theta     
-     +                  + ws(k,pointr)*wv(js)
+c     Project change for OpenMP: loops swapped so each d(i) is
+c     updated by one thread, in the original jy order.
+!$omp parallel do private(i,k,jy,js) schedule(static)
+!$omp+ if(nsub .gt. 10000)
+      do 40 i = 1, nsub
+         k = ind(i)
+         do 30 jy = 1, col
+            js = col + jy
+            d(i) = d(i) + wy(k,ip(jy))*wv(jy)/theta     
+     +                  + ws(k,ip(jy))*wv(js)
   30     continue
-         pointr = mod(pointr,m) + 1
   40  continue
+!$omp end parallel do
 
       call dscal( nsub, one/theta, d, 1 )
 c 
@@ -3230,7 +3288,8 @@ c     Let us try the projection, d is the Newton direction
       iword = 0
 
       call dcopy ( n, x, 1, xp, 1 )
-c
+!$omp parallel do private(i,k,dk,xk) reduction(max:iword)
+!$omp+ schedule(static) if(nsub .gt. 10000)
       do 50 i=1, nsub
          k  = ind(i)
          dk = d(i)
@@ -3259,6 +3318,7 @@ c
             x(k) = xk + dk
          end if 
  50   continue
+!$omp end parallel do
 c
       if ( iword.eq.0 ) then
          go to 911
@@ -3267,9 +3327,11 @@ c
 c     check sign of the directional derivative
 c
       dd_p = zero
+!$omp parallel do reduction(+:dd_p) schedule(static) if(n .gt. 100000)
       do 55 i=1, n
          dd_p  = dd_p + (x(i) - xx(i))*gg(i)
  55   continue
+!$omp end parallel do
       if ( dd_p .gt.zero ) then
          call dcopy( n, xp, 1, x, 1 )
          if (iprint .ne. -1) then
@@ -3322,10 +3384,12 @@ c
             d(ibd) = zero
          endif
       endif
+!$omp parallel do private(i,k) schedule(static) if(nsub .gt. 10000)
       do 70 i = 1, nsub
          k    = ind(i)
          x(k) = x(k) + alpha*d(i)
  70   continue
+!$omp end parallel do
 cccccc
  911  continue
 

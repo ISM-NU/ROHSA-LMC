@@ -43,7 +43,7 @@ function run_rohsa_decomposition_stage!(region_dir, region, region_products, n_g
     timeout_path = joinpath(region_dir, timeout_name)
     # Parameter files are regenerated on every attempt so trace files always
     # capture the current TOML options, even when a fitted output is reused.
-    write_rohsa_parameters(params_path, region_products.dat_path, region_products.rms_path,
+    write_rohsa_parameters(params_path, region_products.rohsa_input_path, region_products.rms_path,
                            rohsa_out, timeout_path, n_gauss, opts)
     status = run_rohsa(rohsa_bin, params_path, rohsa_out, reuse)
     trace_path = joinpath(region_dir, "$(run_label)_run_trace.toml")
@@ -54,7 +54,7 @@ function run_rohsa_decomposition_stage!(region_dir, region, region_products, n_g
             "n_gauss" => n_gauss,
             "candidate_id" => candidate_id,
             "status" => status,
-            "input_dat" => region_products.dat_path,
+            "rohsa_input" => region_products.rohsa_input_path,
             "rms_map" => region_products.rms_path,
             "parameters" => params_path,
             "rohsa_output" => rohsa_out,

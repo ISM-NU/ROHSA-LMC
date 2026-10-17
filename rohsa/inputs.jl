@@ -167,6 +167,24 @@ function write_cube_dat(dat_path::AbstractString, cube)
     return dat_path
 end
 
+# Binary ROHSA input (read by our ROHSA build when the name ends in .bin):
+# int32 nv, ny, nx, then Float64 values in Fortran cube(v, y, x) order.
+# Text parsing of a 2048x2048x159 cube takes ROHSA about 15 minutes.
+function write_cube_bin(bin_path::AbstractString, cube)
+    nx, ny, nv = size(cube)
+    block = Matrix{Float64}(undef, nv, ny)
+    open(bin_path, "w") do io
+        write(io, Int32(nv), Int32(ny), Int32(nx))
+        for x in 1:nx
+            @inbounds for y in 1:ny, k in 1:nv
+                block[k, y] = cube[x, y, k]
+            end
+            write(io, block)
+        end
+    end
+    return bin_path
+end
+
 function estimate_streamed_noise(input::AbstractString, region::InputRegion; max_samples::Int=2_000_000)
     f = FITS(input)
     vals = Float64[]
@@ -244,22 +262,21 @@ function write_region_products(input::AbstractString, header, region::InputRegio
     update_region_header!(region_header, region)
     fits_ext = Astronomy.normalize_fits_extension(fits_extension)
     fits_path = joinpath(region_dir, string(region.label, fits_ext))
-    dat_path = joinpath(region_dir, string(region.label, ".dat"))
-
     # Deriving products or visuals needs the cube later; preflight-style runs can
-    # stream directly to ROHSA .dat to avoid a second full cube in memory.
+    # stream directly to the ROHSA text format to avoid a second full cube in memory.
+    # With the cube in memory the input is written as binary.
     cube = retain_cube || write_region_fits ? read_region_cube(input, region) : nothing
     if cube !== nothing
         sigma = robust_channel_difference_noise(cube)  # raw cube, before clipping
         cube .= map(v -> isfinite(v) && v > 0 ? v : 0.0f0, cube)
         write_region_fits && Astronomy.write_fits(fits_path, cube; header=region_header)
-        write_cube_dat(dat_path, cube)
+        rohsa_input_path = write_cube_bin(joinpath(region_dir, string(region.label, ".bin")), cube)
     else
-        write_streamed_cube_dat(input, dat_path, region)
+        rohsa_input_path = write_streamed_cube_dat(input, joinpath(region_dir, string(region.label, ".dat")), region)
         sigma = estimate_streamed_noise(input, region)
     end
     isfinite(sigma) || (sigma = 1.0)
     rms_path = joinpath(region_dir, "rms_map.dat")
     write_rms_map(rms_path, region.nx, region.ny, sigma)
-    return (; fits_path, dat_path, rms_path, sigma, header=region_header, cube)
+    return (; fits_path, rohsa_input_path, rms_path, sigma, header=region_header, cube)
 end

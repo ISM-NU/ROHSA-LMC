@@ -75,7 +75,7 @@ function run_rohsa_preprocessing(opts)
     derive_products = parse_bool(opts["derive-products"])
     write_region_fits = parse_bool(opts["write-region-fits"])
     write_cubes = parse_bool(opts["write-cubes"])
-    keep_dat_input = parse_bool(opts["keep-dat-input"])
+    keep_rohsa_input = parse_bool(opts["keep-rohsa-input"])
     write_visuals = parse_bool(opts["write-visuals"])
     fits_extension = opts["fits-extension"]
 
@@ -237,11 +237,11 @@ function run_rohsa_preprocessing(opts)
         else
             println("[", region.label, "] product derivation disabled; no ROHSA configuration selected")
         end
-        if !keep_dat_input && isfile(region_products.dat_path)
+        if !keep_rohsa_input && isfile(region_products.rohsa_input_path)
             # All ROHSA runs for this region finished (an error would have
             # stopped us above), so the text copy of the input is no longer needed.
-            rm(region_products.dat_path)
-            println("[", region.label, "] removed ROHSA text input ", region_products.dat_path, " (keep_dat_input = false)")
+            rm(region_products.rohsa_input_path)
+            println("[", region.label, "] removed ROHSA input copy ", region_products.rohsa_input_path, " (keep_rohsa_input = false)")
         end
         append!(rohsa_metrics, region_rohsa_metrics)
         append!(rohsa_product_rows, region_product_rows)

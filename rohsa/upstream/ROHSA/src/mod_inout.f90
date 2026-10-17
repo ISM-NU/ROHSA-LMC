@@ -69,6 +69,24 @@ contains
     character(len=512), intent(in) :: filename
     real(xp), intent(inout), dimension(:,:,:), allocatable :: cube
 
+    ! Project change: a file ending in .bin is read as a binary stream,
+    ! three int32 dimensions (nv, ny, nx) followed by nv*ny*nx float64
+    ! values in cube(v,y,x) memory order. Parsing the text format takes
+    ! about 15 minutes for a 2048x2048x159 cube.
+    nl = len_trim(filename)
+    if (nl > 4) then
+       if (filename(nl-3:nl) == ".bin") then
+          open(unit=11, file=filename, access="stream", form="unformatted", action="read", &
+               status="old", iostat=ios)
+          if (ios /= 0) stop "opening file error"
+          read(11) nv, ny, nx
+          allocate(cube(nv,ny,nx))
+          read(11) cube
+          close(11)
+          return
+       end if
+    end if
+
     open(unit=11, file=filename, action="read", status="old", iostat=ios)
     if (ios /= 0) stop "opening file error"
     

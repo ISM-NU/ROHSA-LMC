@@ -54,11 +54,34 @@ gradient, and in the L-BFGS-B internals (`cauchy`, `formk`, `subsm`, `ddot`).
 | + integer powers | 256 s |
 | + parallel L-BFGS-B `cauchy` main loop, parallel long `ddot`/`dcopy` | 240 s |
 | + no redundant zero-fills in `f_g_cube_fast` | 214 s |
+| + parallel `subsm`, `formk`, `cmprlb`, `projgr`, long `dscal` | 169 s |
 
 The `cauchy` split (parallel classification and sums, serial breakpoint list
 in index order) and the zero-fill removal are bitwise identical at 1 thread
 (64² crop). At 12 threads the per-pixel integrated model differs from the
 previous build by median 1e-4, p99 5e-3 relative (summation order).
 
-Remaining main-thread time: L-BFGS-B `formk`, `subsm`, `cmprlb`, the heap
-search in `cauchy` (inherently sequential).
+## Round 3: rest of L-BFGS-B, binary input, 64-bit workspace
+
+- `subsm`, `cmprlb` and `formk` loop over the free variables once and
+  accumulate all 2·m dot products of a pass at the same time (OpenMP array
+  reductions); the per-variable updates swap loop order so each variable is
+  updated by one thread in the original order. `projgr` (max reduction) and
+  `dscal` above 100000 elements run in parallel. Bitwise identical to the
+  previous build at 1 thread (256² crop, full run); at 12 threads, per-pixel
+  integrated model vs previous build median 1.6e-4, p99 5.5e-3 relative, the
+  same size as run-to-run summation-order differences. CPU use at 12 threads
+  893% -> 1107%.
+- ROHSA reads a binary input (`<crop>.bin`: int32 nv, ny, nx, then Float64 in
+  `cube(v,y,x)` order) when the file name ends in `.bin`; the Julia wrapper
+  writes it whenever the cube is in memory. Same values in text and binary give
+  bitwise identical output (256² crop, 1 thread). Parsing the 20 GB text input
+  of a 2048² crop took ROHSA ~15 min and writing it ~7 min.
+- L-BFGS-B workspace offsets are 64-bit (`setulb`, `mod_minimize`): with
+  2·m·n above 2³¹ (N = 8 on 2048², m = 10) the default-integer offsets wrapped
+  and `cauchy` segfaulted (Irgetas jobs 31682, 31683). Bitwise identical
+  (30 Dor 512², 1 thread).
+
+Remaining main-thread time: the breakpoint heap in `cauchy` (`hpsolb`,
+inherently sequential), `freev` (ordered index lists) and the small dense
+algebra on 2m×2m matrices.
