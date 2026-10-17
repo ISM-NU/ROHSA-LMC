@@ -1,0 +1,64 @@
+# ROHSA preprocessing config.
+#
+# These ROHSA parameter values mirror upstream/ROHSA/ROHSApy.ipynb. Edit this
+# file directly when you want to change the preprocessing run.
+
+[input]
+input = "data/exp_raw/Tb_combined_mw_full_hnv_resOG_reprojected_on_gass.fits"
+output_dir = "validation_output/rohsa_preprocessing"
+
+# crop_size = 0 means full cube. Set crop_size, crop_x0, and crop_y0 together
+# for an explicit crop.
+crop_size = 0
+crop_x0 = 1
+crop_y0 = 1
+spatial_stride = 1
+
+reuse = true
+write_visuals = true
+derive_products = true
+write_region_fits = true
+fits_extension = ".fits"
+preflight_only = false
+force_full_cube = false
+memory_gb = "auto"
+safe_memory_fraction = 0.70
+
+[rohsa]
+n_gauss = [6]
+lambda_amp = 100.0
+lambda_mu = 100.0
+lambda_sig = 100.0
+lambda_var_amp = 0.0
+lambda_var_mu = 0.0
+lambda_var_sig = 0.0
+amp_fact_init = 0.66
+sig_init = 4.0
+lb_sig_init = 1.0
+ub_sig_init = 12.0
+lb_sig = 1.0
+ub_sig = 100.0
+init_option = "mean"
+maxiter_init = 15000
+maxiter = 800
+m = 10
+noise = false
+regul = true
+descent = true
+lstd = 1
+ustd = 20
+iprint = -1
+iprint_init = -1
+save_grid = false
+
+[auto_config]
+enabled = false
+profile = "physical_decomposition"
+max_candidates = 24
+# Uncomment any axis below to let ROHSA preprocessing sweep that value.
+# Omitted axes use the single value from [rohsa].
+# n_gauss = [4, 6, 8]
+# lambda_amp = [10.0, 100.0, 1000.0]
+# lambda_mu = [10.0, 100.0, 1000.0]
+# lambda_sig = [10.0, 100.0, 1000.0]
+# lambda_var_sig = [0.0, 100.0, 1000.0]
