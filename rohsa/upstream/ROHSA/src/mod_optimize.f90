@@ -127,7 +127,6 @@ contains
     integer :: i, j, k, l
     integer :: n_beta
     real(xp), dimension(:,:,:), allocatable :: residual
-    real(xp), dimension(:), allocatable :: residual_1D
     real(xp), dimension(:,:,:), allocatable :: params
     real(xp), dimension(:), allocatable :: b_params
     real(xp), dimension(:,:), allocatable :: conv_amp, conv_mu, conv_sig
@@ -136,7 +135,7 @@ contains
     real(xp), dimension(:,:,:), allocatable :: deriv
     real(xp), dimension(:), allocatable :: model
     real(xp) :: gauss
-    real(xp) :: ee, rr, gb
+    real(xp) :: ee, rr, fr, gb
 
     allocate(deriv(3*n_gauss, dim_y, dim_x))
     allocate(residual(dim_v, dim_y, dim_x))
@@ -147,9 +146,8 @@ contains
     allocate(image_amp(dim_y, dim_x), image_mu(dim_y, dim_x), image_sig(dim_y, dim_x))
     allocate(model(dim_v))
 
-    ! Only arrays that are accumulated into are zeroed: params and residual
-    ! are overwritten below, and ravel_3D overwrites g except its last
-    ! n_gauss entries (project change; the serial fills were ~7% of runtime).
+    ! params and residual are overwritten below, and ravel_3D overwrites g
+    ! except its last n_gauss entries, so only those and deriv are zeroed.
     !$omp parallel do schedule(static)
     do l=1, dim_x
        deriv(:,:,l) = 0._xp
@@ -158,7 +156,7 @@ contains
     f = 0._xp
     model = 0._xp
     gauss = 0._xp
-
+    
     n_beta = (3*n_gauss * dim_y * dim_x) + n_gauss
     g((n_beta-n_gauss)+1:n_beta) = 0._xp
 
@@ -168,7 +166,9 @@ contains
     end do
 
     ! Compute the objective function and the gradient
-    ! (OpenMP over sky columns; each spectrum is independent)
+    ! Same model and objective as myresidual and myfunc_spec, written into
+    ! residual directly instead of a temporary allocated per spectrum.
+    ! Spectra are independent: OpenMP over sky columns.
     !$omp parallel do private(i, k, l, model) reduction(+:f) schedule(static)
     do j=1, dim_x
        do i=1, dim_y
@@ -201,18 +201,23 @@ contains
        call convolution_2D_mirror(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
        call convolution_2D_mirror(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
        
+       ! Regularisation terms of this Gaussian are summed in fr and gb and
+       ! added to f and g once, so the loop can run in parallel with the
+       ! same result on one thread.
+       fr = 0._xp
        gb = 0._xp
-       !$omp parallel do private(j, k, ee, rr) reduction(+:f, gb) schedule(static)
+       !$omp parallel do private(j, k, ee, rr) reduction(+:fr, gb) schedule(static)
        do l=1, dim_x
           do j=1, dim_y
              !Regularization
-             f = f + (0.5_xp * lambda_amp * conv_amp(j,l)**2)
-             f = f + (0.5_xp * lambda_mu * conv_mu(j,l)**2)
-             f = f + (0.5_xp * lambda_sig * conv_sig(j,l)**2) + (0.5_xp * lambda_var_sig * (image_sig(j,l) - b_params(i))**2)
-
-             gb = gb - (lambda_var_sig * (image_sig(j,l) - b_params(i)))
-
-             ! Same expressions as upstream; the Gaussian exp is evaluated once per channel instead of three times
+             fr = fr + (0.5_xp * lambda_amp * conv_amp(j,l)**2)
+             fr = fr + (0.5_xp * lambda_mu * conv_mu(j,l)**2)
+             fr = fr + (0.5_xp * lambda_sig * conv_sig(j,l)**2) + (0.5_xp * lambda_var_sig * (image_sig(j,l) - b_params(i))**2)
+             
+             gb = gb - (lambda_var_sig * (image_sig(j,l) - b_params(i)))        
+             
+             ! The Gaussian (ee) and the weighted residual (rr) are computed
+             ! once per channel and shared by the three derivatives.
              if (std_map(j,l) > 0._xp) then
                 do k=1, dim_v
                    ee = exp( ( -(real(k,xp) - params(2+(3*(i-1)),j,l))**2) / (2._xp * params(3+(3*(i-1)),j,l)**2))
@@ -233,6 +238,7 @@ contains
           !
        end do
        !$omp end parallel do
+       f = f + fr
        g((n_beta-n_gauss)+i) = g((n_beta-n_gauss)+i) + gb
     end do        
     

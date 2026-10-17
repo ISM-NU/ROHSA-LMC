@@ -76,7 +76,9 @@ previous build by median 1e-4, p99 5e-3 relative (summation order).
   `cube(v,y,x)` order) when the file name ends in `.bin`; the Julia wrapper
   writes it whenever the cube is in memory. Same values in text and binary give
   bitwise identical output (256² crop, 1 thread). Parsing the 20 GB text input
-  of a 2048² crop took ROHSA ~15 min and writing it ~7 min.
+  of a 2048² crop takes ROHSA about 4 min (0.36 µs per line, measured on a
+  256² cube) and writing it ~7 min. (An earlier estimate of ~15 min came from
+  a misattributed profiler sample.)
 - L-BFGS-B workspace offsets are 64-bit (`setulb`, `mod_minimize`): with
   2·m·n above 2³¹ (N = 8 on 2048², m = 10) the default-integer offsets wrapped
   and `cauchy` segfaulted (Irgetas jobs 31682, 31683). Bitwise identical

@@ -237,11 +237,11 @@ c
 c
 c     ************
 c-jlm-jn 
-c     Workspace offsets are 64-bit (project change): with 2*m*n
-c     above 2**31 (e.g. 8 Gaussians on a 2048**2 grid, m = 10) the
-c     original default-integer offsets wrapped and mainlb wrote
-c     outside wa. They are recomputed from n and m on every call
-c     instead of being kept in isave(1:16).
+c     The workspace offsets are 64-bit integers: 2*m*n exceeds 2**31
+c     for large problems (e.g. 8 Gaussians on a 2048 x 2048 map with
+c     m = 10), and default-integer offsets would wrap around. They are
+c     recomputed from n and m on every call instead of being kept in
+c     isave(1:16).
       integer*8 lws,lr,lz,lt,ld,lxp,lwa,
      +          lwy,lsy,lss,lwt,lwn,lsnd,mn,mm
 
@@ -1434,11 +1434,12 @@ c     In the following loop we determine for each variable its bound
 c        status and its breakpoint, and update p accordingly.
 c        Smallest breakpoint is identified.
 
-c     Two passes (project change for OpenMP): the parallel pass
+c     Two passes so that the first can run in parallel (OpenMP): it
 c     classifies each variable and accumulates f1 and p; the serial
-c     pass builds the breakpoint and free lists in index order, so
-c     iorder, t, nbreak, nfree, ibkmin and bnded match the original
-c     single loop. Only the summation order of f1 and p changes.
+c     second pass builds the breakpoint and free lists in index order,
+c     so iorder, t, nbreak, nfree, ibkmin and bnded are those of the
+c     original single loop. With one thread f1 and p are summed in the
+c     original order.
 !$omp parallel do private(i,j,neggi,tl,tu,xlower,xupper,pointr)
 !$omp+ reduction(+:f1,p) schedule(static)
       do 50 i = 1, n 
@@ -1745,8 +1746,8 @@ c     ************
  
       integer          i,j,k,pointr
       double precision a1,a2
-c     Project change for OpenMP: slot ip(j) and coefficients b1/b2 of
-c     each correction pair, so the r(i) loop can run per variable.
+c     Slot ip(j) and coefficients b1/b2 of each correction pair, so the
+c     r(i) loop can run per variable (OpenMP).
       integer          ip(m)
       double precision b1(m), b2(m)
 
@@ -2019,9 +2020,9 @@ c          put new rows in blocks (1,1), (2,1) and (2,2).
          is = m + col
          ipntr = head + col - 1
          if (ipntr .gt. m) ipntr = ipntr - m    
-c     Project change for OpenMP: ip(jy) is the slot of the jy-th pair.
-c     Each pass over k accumulates all col sums of the original loops,
-c     each sum still in k order.
+c     ip(jy) is the slot of the jy-th pair. Each pass over k accumulates
+c     all col sums of the original loops, each sum still in k order, so
+c     the pass can run in parallel (OpenMP).
          pointr = head
          do 12 jy = 1, col
             ip(jy) = pointr
@@ -2087,8 +2088,8 @@ c       in the set of free variables.
             c3(iy,jy) = zero
   42     continue
   43  continue
-c     Project change for OpenMP: entering variables (b1, b2, c1) and
-c     leaving variables (b3, b4, c3), all pairs per pass over k.
+c     Entering variables (b1, b2, c1) and leaving variables (b3, b4, c3),
+c     all pairs per pass over k (OpenMP; each sum still in k order).
 !$omp parallel do private(k,k1,iy,jy) reduction(+:b1,b2,c1)
 !$omp+ schedule(static) if(nenter .gt. 1000)
       do 35 k = 1, nenter
@@ -3218,8 +3219,8 @@ c     ************
       double precision one,zero
       parameter        (one=1.0d0,zero=0.0d0)
       double precision dd_p
-c     Project change for OpenMP: ip(i) is the memory slot of the i-th
-c     correction pair; t1/t2 hold one partial sum per pair.
+c     ip(i) is the memory slot of the i-th correction pair; t1/t2 hold
+c     one partial sum per pair.
       integer          ip(m)
       double precision t1(m), t2(m)
 
@@ -3228,8 +3229,8 @@ c     correction pair; t1/t2 hold one partial sum per pair.
 
 c     Compute wv = W'Zd.
 
-c     Project change for OpenMP: one pass over the free variables
-c     accumulates all 2*col sums; each sum still runs over j in order.
+c     One pass over the free variables accumulates all 2*col sums, each
+c     still over j in order, so the pass can run in parallel (OpenMP).
       pointr = head 
       do 5 i = 1, col
          ip(i) = pointr
@@ -3266,8 +3267,8 @@ c     Compute wv:=K^(-1)wv.
  
 c     Compute d = (1/theta)d + (1/theta**2)Z'W wv.
  
-c     Project change for OpenMP: loops swapped so each d(i) is
-c     updated by one thread, in the original jy order.
+c     Loops swapped so that each d(i) is updated by one thread, in the
+c     original jy order (OpenMP).
 !$omp parallel do private(i,k,jy,js) schedule(static)
 !$omp+ if(nsub .gt. 10000)
       do 40 i = 1, nsub

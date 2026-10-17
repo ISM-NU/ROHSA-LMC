@@ -169,7 +169,8 @@ end
 
 # Binary ROHSA input (read by our ROHSA build when the name ends in .bin):
 # int32 nv, ny, nx, then Float64 values in Fortran cube(v, y, x) order.
-# Text parsing of a 2048x2048x159 cube takes ROHSA about 15 minutes.
+# Writing the text format for a 2048x2048x159 cube takes ~7 minutes and
+# parsing it ~4 minutes; the binary file is 5.3 GB instead of 20 GB.
 function write_cube_bin(bin_path::AbstractString, cube)
     nx, ny, nv = size(cube)
     block = Matrix{Float64}(undef, nv, ny)

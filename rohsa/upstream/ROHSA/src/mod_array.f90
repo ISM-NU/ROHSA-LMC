@@ -23,10 +23,10 @@ contains
     real(xp) :: acc
     real(xp), dimension(:,:), allocatable :: extended
 
-    ! Same result as the upstream loop, which convolved the whole padded array
-    ! with a bounds test per term and kept only the interior: only interior
-    ! points are computed here (their neighbours are always in bounds), the
-    ! terms are added in the same order, and columns run in parallel.
+    ! Only the interior points are convolved: they are the only ones kept,
+    ! and their neighbours are always inside the padded array, so no bounds
+    ! test is needed. The terms are added in the same order as before.
+    ! Columns are independent and run in parallel with OpenMP.
     allocate(extended(dim_y+4, dim_x+4))
     extended = 0._xp
 

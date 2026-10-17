@@ -44,8 +44,9 @@ command -v julia >/dev/null || {
 # ROHSA's cost/gradient loop is OpenMP-parallel. Match threads to the Slurm
 # allocation; an unset OMP_NUM_THREADS would start one thread per node core.
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
-# -fopenmp puts Fortran local arrays on the stack; at the 2048^2 level they
-# exceed the 8 MB default (segfault at "Start updating last level").
+# Headroom for automatic arrays on the stack under -fopenmp. Not the cause of
+# the earlier segfault at "Start updating last level", which was the 32-bit
+# L-BFGS-B workspace overflow (fixed, docs/upstream-prs/rohsa/01-*.md).
 ulimit -s unlimited
 export OMP_STACKSIZE=256M
 echo "omp_threads=$OMP_NUM_THREADS"

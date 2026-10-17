@@ -5,10 +5,21 @@ FC=gfortran
 # GFLAGS=-Wall -Wextra -pedantic -std=f2008 -g -O2 -fno-second-underscore -Wno-compare-reals -fcheck=all -fimplicit-none -fbacktrace -gdwarf-2 -fall-intrinsics -Wno-unused-function -fcheck=bounds -I/usr/local/include
 
 # GFLAGS= -O2 -I/usr/local/include -ffixed-line-length-none -Wno-uninitialized -Wall -fbounds-check
-GFLAGS= -O2 -g -fbacktrace -fopenmp -I/usr/local/include -ffixed-line-length-none #-fbounds-check
+GFLAGS= -O2 -g -fbacktrace -I/usr/local/include -ffixed-line-length-none #-fbounds-check
 
-CFLAGS= -lm -g -O2 -fopenmp #-lcfitsio -openmp -llapack
+CFLAGS= -lm -g -O2 #-lcfitsio -openmp -llapack
 # -L/Users/antoinemarchal/mylib/cfitsio-master
+
+# This project builds the OpenMP version by default (OPENMP ?= 1); upstream
+# ROHSA's default is serial. See docs/upstream-prs/rohsa.
+OPENMP ?= 1
+# Optional OpenMP build: make OPENMP=1. Set the number of threads with
+# OMP_NUM_THREADS; with OMP_NUM_THREADS=1 the result is bit-for-bit the
+# same as the default serial build.
+ifeq ($(OPENMP),1)
+GFLAGS += -fopenmp
+CFLAGS += -fopenmp
+endif
 
 OUT=ROHSA
 
