@@ -63,7 +63,10 @@ on one map takes weeks; with threads it fits in a few days on one node.
   #2 + #3.
 - *Reproducibility*: with `OMP_NUM_THREADS=1` an OpenMP build gives bit-for-bit
   the serial result. With more threads the objective is summed in a different
-  order, so results differ by rounding only: TODO-MULTITHREAD-DIFF. For
+  order, so results differ by rounding only. On the real 512 × 512 window (N = 6), the
+per-pixel integrated model at 2, 8 or 32 threads differs from 1 thread by
+median 5–7e-4, 99th percentile < 1e-2. 2 vs 32 threads differ by the same
+amount, so there is no trend with thread count. For
   scale: changing the input values in their last bit only (≤ 5.6e-17) already
   moves the same quantity by median 5.8e-5 — the optimizer amplifies
   rounding-level differences, so a different summation order is the same
@@ -94,7 +97,12 @@ On the synthetic 256 × 256 × 100 cube of `check/make_synthetic.py` (N = 4, one
 - `OPENMP=1` build at `OMP_NUM_THREADS=1`: bit-for-bit identical to the serial
   build.
 
-TODO-MULTITHREAD-CHECKS
+On the real 512 × 512 × 159 window (N = 6, λ′σ = 30) at 2, 4, 8, 16 and 32
+threads, every run converged. Compared with 1 thread, the per-pixel integrated
+model differs by median 5.4e-4 to 7.3e-4, 99th percentile 6.4e-3 to 7.8e-3.
+The largest single-pixel differences are up to 0.6, in a few pixels; we read
+those as places where two Gaussians can trade flux almost freely. Timings and
+comparisons: `check/results-timing-2026-10-19.txt`.
 
 ## How to use
 

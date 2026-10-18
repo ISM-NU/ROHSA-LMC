@@ -20,5 +20,9 @@ is independent), used by #4.
 ## Checks
 
 - On the synthetic 256 × 256 × 100 cube of `check/make_synthetic.py` (N = 4, one thread): decomposition bit-for-bit identical to `master`.
-- TODO-PR2-SPEED (serial run time vs `master`).
+- Serial run time on the synthetic cube: 863 s against 888 s for `master`
+  (2.8 % faster; mean of three runs, spread ±6 s). Both builds ran at the same
+  time on four cores of one node, rotating cores between rounds, so they share
+  the same load. The gain is small on its own. The main purpose is to make the
+  convolution columns independent for #4.
 

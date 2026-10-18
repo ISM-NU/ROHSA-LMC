@@ -1,0 +1,37 @@
+# ROHSA timings, NU Irgetas, AMD EPYC 9684X (Zen 4). Wall time in s.
+## Serial, synthetic 256x256x100 (N=4): four builds concurrently on one node, 3 rounds, cores rotated (serial_paired_job.sh)
+all round 1 core 165 wall 490.2 s
+all round 2 core 166 wall 497.3 s
+all round 3 core 167 wall 485.3 s
+master round 1 core 166 wall 893.3 s
+master round 2 core 167 wall 887.4 s
+master round 3 core 168 wall 882.7 s
+pr2 round 1 core 167 wall 860.6 s
+pr2 round 2 core 168 wall 870.8 s
+pr2 round 3 core 165 wall 858.0 s
+pr3 round 1 core 168 wall 518.8 s
+pr3 round 2 core 165 wall 516.2 s
+pr3 round 3 core 166 wall 518.6 s
+
+## Threads, real 512x512x159 LMC window (N=6, lambda_var_sig=30), one allocation per run with exactly that many cores (timing_job.sh)
+pr4_o1 threads 1 wall 5206.7 s
+pr4_o2 threads 2 wall 3083.9 s
+pr4_o4 threads 4 wall 1568.9 s
+pr4_o8 threads 8 wall 1139.2 s
+pr4_o16 threads 16 wall 1198.8 s
+pr4_o32 threads 32 wall 955.0 s
+pr5_o1 threads 1 wall 5466.3 s
+pr5_o2 threads 2 wall 2874.1 s
+pr5_o4 threads 4 wall 1294.6 s
+pr5_o8 threads 8 wall 808.9 s
+pr5_o16 threads 16 wall 665.2 s
+pr5_o32 threads 32 wall 419.2 s
+
+## Multi-thread vs 1 thread (compare.py)
+pr4_o1         vs pr4_o2         differ: per-pixel integrated model rel. diff median 5.4e-04, p99 6.4e-03, max 2.2e-01
+pr4_o1         vs pr4_o8         differ: per-pixel integrated model rel. diff median 7.3e-04, p99 7.8e-03, max 3.3e-01
+pr4_o1         vs pr4_o32        differ: per-pixel integrated model rel. diff median 6.3e-04, p99 7.7e-03, max 5.9e-01
+pr5_o1         vs pr5_o2         differ: per-pixel integrated model rel. diff median 7.3e-04, p99 8.2e-03, max 1.1e+00
+pr5_o1         vs pr5_o8         differ: per-pixel integrated model rel. diff median 9.0e-04, p99 2.3e-02, max 6.6e-01
+pr5_o1         vs pr5_o32        differ: per-pixel integrated model rel. diff median 4.3e-04, p99 4.5e-03, max 3.6e-01
+pr4_o32        vs pr5_o32        differ: per-pixel integrated model rel. diff median 5.6e-04, p99 7.5e-03, max 3.7e-01

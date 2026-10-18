@@ -43,5 +43,7 @@ On the synthetic 256 × 256 × 100 cube of `check/make_synthetic.py` (N = 4, one
   99th percentile 6.6e-4 (relative). For scale: changing the input values
   only in their last bit (≤ 5.6e-17) moves the same quantity by median
   5.8e-5, so this is rounding-level, not a change of the solution.
-- Serial run time: TODO-PR3-SPEED.
+- Serial run time on the synthetic cube: 518 s against 888 s for `master`,
+  **1.71× faster** (mean of three runs, spread ±3 s, same setup as #2). With
+  #1, #2, #3 and #6 combined: 491 s (1.81×).
 

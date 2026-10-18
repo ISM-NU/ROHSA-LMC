@@ -32,5 +32,7 @@ threads the dot products are summed in a different order (rounding only).
   `OMP_NUM_THREADS=1` are both bit-for-bit identical to #4's serial build.
 - Run time on the real 512 × 512 × 159 window (N = 6), with each thread count in
   its own allocation: 5466 s at 1 thread, 809 s at 8, 419 s at 32 (13.0×). #4
-  alone takes 955 s at 32 threads (5.5×). Full table in #4.
+  alone takes 955 s at 32 threads (5.5×). Full table in #4. Against
+  1 thread, 32 threads change the per-pixel integrated model by median 4.3e-4,
+  99th percentile 4.5e-3 (the same size as #4's thread-count differences).
 
