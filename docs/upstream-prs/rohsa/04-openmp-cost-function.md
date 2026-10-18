@@ -19,7 +19,26 @@ into independent pieces without changing the result. For the GASKAP-HI cube of
 the Large Magellanic Cloud we decompose a 2048 × 2048 × 159 region: 75 million
 parameters with N = 6, 101 million with N = 8.
 
-TODO-SCALING-NUMBERS
+**Measured speed-up.** We timed a 512 × 512 × 159 window of that cube (N = 6,
+λ′σ = 30). Each run had its own allocation of exactly that many cores on one
+AMD EPYC 9684X node. The nodes were shared with other jobs, so expect about
+±10 % per number. Wall time, and speed-up over one thread of the same build:
+
+| threads | this PR | with #5 |
+|---:|---:|---:|
+| 1 | 5207 s (1.0×) | 5466 s (1.0×) |
+| 2 | 3084 s (1.7×) | 2874 s (1.9×) |
+| 4 | 1569 s (3.3×) | 1295 s (4.2×) |
+| 8 | 1139 s (4.6×) | 809 s (6.8×) |
+| 16 | 1199 s (4.3×) | 665 s (8.2×) |
+| 32 | 955 s (5.5×) | 419 s (13.0×) |
+
+This PR alone levels off at about 5×: the cost function is then fast, and the
+serial L-BFGS-B update takes most of the time. #5 parallelises that part. The
+full 2048 × 2048 × 159 region (N = 8) took 2 h 58 min on 32 threads with all
+PRs. At the one-thread rate above, it would take roughly 13 times as long, about
+1.6 days. That is an extrapolation from the window; we did not make a serial run
+of the full region.
 
 **Choosing hyper-parameters needs many runs.** N, λ and λ′σ have to be chosen
 by comparing decompositions (the paper's recommendation, and what we do on

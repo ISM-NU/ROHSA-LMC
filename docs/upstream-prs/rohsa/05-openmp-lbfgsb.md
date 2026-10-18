@@ -30,5 +30,7 @@ threads the dot products are summed in a different order (rounding only).
 
 - On the synthetic 256 × 256 × 100 cube of `check/make_synthetic.py` (N = 4, one thread): the serial build and the `OPENMP=1` build at
   `OMP_NUM_THREADS=1` are both bit-for-bit identical to #4's serial build.
-- TODO-PR5-SPEED (run time at several thread counts vs #4).
+- Run time on the real 512 × 512 × 159 window (N = 6), with each thread count in
+  its own allocation: 5466 s at 1 thread, 809 s at 8, 419 s at 32 (13.0×). #4
+  alone takes 955 s at 32 threads (5.5×). Full table in #4.
 
