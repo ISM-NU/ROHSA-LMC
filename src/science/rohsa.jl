@@ -152,12 +152,12 @@ function rohsa_component_rows(region_label::AbstractString, n_gauss::Int, params
         sig_chan = @view params[3g, :, :]
         moment = moment0(comp)
         sigma_kms = abs(Float64(dv_kms)) .* sig_chan
-        # Component centroids are fitted in 1-based channel coordinates (ROHSA
-        # evaluates gaussian(k, ...) for k = 1..nv), so mu = 1 is the first channel.
+        # params hold zero-based centres (read_rohsa_parameters subtracts 1 from
+        # ROHSA's 1-based mu), so mu = 0 is the first channel.
         mu_kms = begin
             first_velocity = first(velocities_kms)
             step = length(velocities_kms) > 1 ? velocities_kms[2] - velocities_kms[1] : Float64(dv_kms)
-            first_velocity .+ step .* (mu_chan .- 1)
+            first_velocity .+ step .* mu_chan
         end
         weighted_sigma = finite_weighted_mean(vec(sigma_kms), vec(moment))
         weighted_mu = finite_weighted_mean(vec(mu_kms), vec(moment))
@@ -266,7 +266,7 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
         mu_chan = @view params[3g - 1, :, :]
         sig_chan = @view params[3g, :, :]
         step = length(velocities_kms) > 1 ? velocities_kms[2] - velocities_kms[1] : Float64(dv_kms)
-        mu_kms = Float32.(first(velocities_kms) .+ step .* (mu_chan .- 1))
+        mu_kms = Float32.(first(velocities_kms) .+ step .* mu_chan)  # zero-based centres
         sigma_kms = Float32.(abs(Float64(dv_kms)) .* sig_chan)
         t_doppler = Float32.(doppler_temperature_k.(Float64.(sigma_kms)))
         nhi = Float32.(column_density_map(comp, dv_kms))

@@ -42,8 +42,8 @@ using Test
     @test rows[2]["width_group"] == "broad"
     @test rows[2]["td_group"] == "td_ge_5000k"
     @test rows[1]["weighted_sigma_kms"] ≈ 1.0
-    # ROHSA centroids are 1-based channels: mu = 1 is the first channel (0 km/s here).
-    @test rows[1]["weighted_mu_kms"] ≈ 0.0
+    # params hold zero-based centres: mu = 1 is the second channel (1 km/s here).
+    @test rows[1]["weighted_mu_kms"] ≈ 1.0
     @test rows[2]["weighted_t_doppler_k"] ≈ 121.1 * 64.0
 
     mktempdir() do dir
@@ -136,6 +136,14 @@ end
         end
         params = Astronomy.read_rohsa_parameters(path, 1, 1, 1)
         @test params[:, 1, 1] == [1.5, 1.0, 3.0]
+        # End to end: ROHSA's mu is 1-based, so mu = 2.0 in the file is the second
+        # channel, at 1 km/s on an axis with CRVAL3 = 0, CRPIX3 = 1, CDELT3 = 1 km/s.
+        header = FITSHeader(["CRPIX3", "CRVAL3", "CDELT3", "CUNIT3"], [1.0, 0.0, 1000.0, "m/s"], fill("", 4))
+        velocities, dv = Astronomy.velocity_axis_kms(header, 4)
+        components = Astronomy.reconstruct_rohsa_components(params, 4)
+        rows = Astronomy.rohsa_component_rows("r", 1, params, components, velocities, dv)
+        @test rows[1]["weighted_mu_kms"] ≈ 1.0
+        @test argmax(vec(components[1][1, 1, :])) == 2
         @test_throws ArgumentError Astronomy.read_rohsa_parameters(path, 2, 1, 1)
     end
 end
