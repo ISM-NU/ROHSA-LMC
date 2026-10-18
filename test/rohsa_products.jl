@@ -21,7 +21,8 @@ using Test
         fill("", 16),
     )
     velocities, dv = Astronomy.velocity_axis_kms(header, 3)
-    @test velocities == [-1.0, 0.0, 1.0]
+    # CRPIX3 = 1, CRVAL3 = 0: the first channel is at 0 km/s (FITS convention).
+    @test velocities == [0.0, 1.0, 2.0]
     @test dv == 1.0
     @test Astronomy.doppler_temperature_k(2.0) ≈ 484.4
 
@@ -41,6 +42,8 @@ using Test
     @test rows[2]["width_group"] == "broad"
     @test rows[2]["td_group"] == "td_ge_5000k"
     @test rows[1]["weighted_sigma_kms"] ≈ 1.0
+    # ROHSA centroids are 1-based channels: mu = 1 is the first channel (0 km/s here).
+    @test rows[1]["weighted_mu_kms"] ≈ 0.0
     @test rows[2]["weighted_t_doppler_k"] ≈ 121.1 * 64.0
 
     mktempdir() do dir
