@@ -1,6 +1,14 @@
 # ROHSA pull requests
 
-Status: prepared, **not submitted**. Upstream: https://github.com/antoinemarchal/ROHSA
+Status: **submitted on 2026-10-19** from the fork `unsound-mint/ROHSA`:
+#1 https://github.com/antoinemarchal/ROHSA/pull/4,
+#2 https://github.com/antoinemarchal/ROHSA/pull/5,
+#3 https://github.com/antoinemarchal/ROHSA/pull/6,
+#4 https://github.com/antoinemarchal/ROHSA/pull/8,
+#5 https://github.com/antoinemarchal/ROHSA/pull/9,
+#6 https://github.com/antoinemarchal/ROHSA/pull/7
+(upstream numbers differ from ours; the PR texts were rewritten to the upstream
+numbers). Upstream: https://github.com/antoinemarchal/ROHSA
 (`master` at `e36bc49`, version 1.2.1; last commit February 2021, one
 maintainer). Our vendored copy `rohsa/upstream/ROHSA` was identical to that
 commit before our changes.
