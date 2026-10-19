@@ -12,13 +12,19 @@ using Astronomy
 #
 #   julia --project=. rohsa/cli/layer_cubes.jl <region_dir> <n_gauss> <out_dir> \
 #       [--split-kms 20] [--width-kms 3] [--ref-sigma-px 30] [--noise K] [--ny-chunks N]
+#       [--split-by velocity|width] [--cold-min-amp K]
+#
+# --split-by width writes cold / unstable / warm cubes instead (Gaussians by
+# Doppler temperature: < 500 K, 500-5000 K, >= 5000 K); --cold-min-amp drops
+# narrow Gaussians fainter than K (fitted noise).
 
-const USAGE = "Usage: julia --project=. rohsa/cli/layer_cubes.jl <region_dir> <n_gauss> <out_dir> [--split-kms 20] [--width-kms 3] [--ref-sigma-px 30] [--noise K] [--ny-chunks N]"
+const USAGE = "Usage: julia --project=. rohsa/cli/layer_cubes.jl <region_dir> <n_gauss> <out_dir> [--split-kms 20] [--width-kms 3] [--ref-sigma-px 30] [--noise K] [--ny-chunks N] [--split-by velocity|width] [--cold-min-amp K]"
 
 function parse_layer_args(args)
     length(args) >= 3 || throw(ArgumentError(USAGE))
     opts = Dict("--split-kms" => "20", "--width-kms" => "3", "--ref-sigma-px" => "30",
-                "--noise" => "", "--ny-chunks" => "16")
+                "--noise" => "", "--ny-chunks" => "16",
+                "--split-by" => "velocity", "--cold-min-amp" => "0")
     rest = args[4:end]
     iseven(length(rest)) || throw(ArgumentError(USAGE))
     for i in 1:2:length(rest)
@@ -29,7 +35,8 @@ function parse_layer_args(args)
             split_kms=parse(Float64, opts["--split-kms"]), width_kms=parse(Float64, opts["--width-kms"]),
             ref_sigma_px=parse(Float64, opts["--ref-sigma-px"]),
             noise=isempty(opts["--noise"]) ? nothing : parse(Float64, opts["--noise"]),
-            ny_chunks=parse(Int, opts["--ny-chunks"]))
+            ny_chunks=parse(Int, opts["--ny-chunks"]), split_by=opts["--split-by"],
+            cold_min_amp=parse(Float64, opts["--cold-min-amp"]))
 end
 
 # The ROHSA wrapper writes one scalar noise value to every pixel of rms_map.dat.
@@ -67,9 +74,12 @@ function main(args=ARGS)
     println("region=$region grid=$nx×$ny×$nv channel=$(channel_kms) km/s noise=$noise K")
 
     params = Astronomy.read_rohsa_parameters(rohsa_out, opt.n_gauss, nx, ny)
+    opt.split_by in ("velocity", "width") || throw(ArgumentError("--split-by must be velocity or width"))
     reference = Astronomy.reference_centroid_channels(params; sigma_pixels=opt.ref_sigma_px)
-    cubes = Astronomy.build_layer_cubes(params, nv, channel_kms; reference,
-                                        split_kms=opt.split_kms, width_kms=opt.width_kms)
+    cubes = opt.split_by == "width" ?
+        Astronomy.build_phase_cubes(params, nv, channel_kms; cold_min_amp=opt.cold_min_amp) :
+        Astronomy.build_layer_cubes(params, nv, channel_kms; reference,
+                                    split_kms=opt.split_kms, width_kms=opt.width_kms)
 
     model_total = sum(Float64, cubes[:model])
     configs = String[]
@@ -92,6 +102,7 @@ function main(args=ARGS)
         TOML.print(io, Dict("region_dir" => opt.region_dir, "n_gauss" => opt.n_gauss,
                             "split_kms" => opt.split_kms, "width_kms" => opt.width_kms,
                             "ref_sigma_px" => opt.ref_sigma_px, "noise" => noise,
+                            "split_by" => opt.split_by, "cold_min_amp" => opt.cold_min_amp,
                             "vgt_configs" => configs); sorted=true)
     end
     return 0

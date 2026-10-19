@@ -87,3 +87,53 @@ function build_layer_cubes(params, nv::Int, channel_kms::Real; reference,
     end
     return cubes
 end
+
+const ROHSA_PHASE_NAMES = (:cold, :unstable, :warm)
+
+"""
+    gaussian_phase(sigma_kms, amp; cold_max_k=500.0, warm_min_k=5000.0, cold_min_amp=0.0)
+
+Phase of one Gaussian from its Doppler temperature T_D = DOPPLER_TEMPERATURE_FACTOR σ²:
+`:cold` below `cold_max_k` (only if `amp >= cold_min_amp`; fainter narrow
+Gaussians are mostly fitted noise and get no phase), `:warm` at or above
+`warm_min_k`, `:unstable` in between.
+"""
+function gaussian_phase(sigma_kms::Real, amp::Real; cold_max_k::Real=500.0, warm_min_k::Real=5000.0,
+                        cold_min_amp::Real=0.0)
+    t = DOPPLER_TEMPERATURE_FACTOR * sigma_kms^2
+    t < cold_max_k && return amp >= cold_min_amp ? :cold : :none
+    return t < warm_min_k ? :unstable : :warm
+end
+
+"""
+    build_phase_cubes(params, nv, channel_kms; cold_max_k=500.0, warm_min_k=5000.0, cold_min_amp=0.0)
+
+Model cube and `cold` / `unstable` / `warm` cubes (x, y, v; Float32), each Gaussian
+assigned whole by its width (see `gaussian_phase`). The phases add up to the
+model minus the faint narrow Gaussians below `cold_min_amp`.
+"""
+function build_phase_cubes(params, nv::Int, channel_kms::Real; cold_max_k::Real=500.0,
+                           warm_min_k::Real=5000.0, cold_min_amp::Real=0.0)
+    n_gauss = size(params, 1) ÷ 3
+    nx, ny = size(params, 2), size(params, 3)
+    cubes = Dict(name => zeros(Float32, nx, ny, nv) for name in (:model, ROHSA_PHASE_NAMES...))
+    model = cubes[:model]
+    Threads.@threads for y in 1:ny
+        @inbounds for x in 1:nx
+            for g in 1:n_gauss
+                amp = params[3g - 2, x, y]
+                amp > 0 || continue
+                mu = params[3g - 1, x, y]
+                sigma = max(params[3g, x, y], 1e-6)
+                phase = gaussian_phase(sigma * channel_kms, amp; cold_max_k, warm_min_k, cold_min_amp)
+                target = phase === :none ? nothing : cubes[phase]
+                for k in 1:nv
+                    v = Float32(amp * exp(-((k - 1 - mu)^2) / (2sigma^2)))
+                    model[x, y, k] += v
+                    target === nothing || (target[x, y, k] += v)
+                end
+            end
+        end
+    end
+    return cubes
+end

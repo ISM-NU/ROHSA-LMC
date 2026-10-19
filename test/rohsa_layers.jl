@@ -27,4 +27,17 @@ using Test
     ref = Astronomy.reference_centroid_channels(params; sigma_pixels=1.0)
     @test all(isfinite, ref)
     @test 20 < ref[1, 1] < 60
+
+    # Phases by width: σ = 1 km/s (121 K) cold, 4 km/s (1936 K) unstable, 8 km/s warm.
+    @test Astronomy.gaussian_phase(1.0, 5.0) === :cold
+    @test Astronomy.gaussian_phase(1.0, 0.5; cold_min_amp=1.0) === :none
+    @test Astronomy.gaussian_phase(4.0, 5.0) === :unstable
+    @test Astronomy.gaussian_phase(8.0, 5.0) === :warm
+    pp = zeros(9, 1, 1)
+    pp[:, 1, 1] .= (10.0, 40.0, 1.0, 6.0, 50.0, 4.0, 3.0, 70.0, 8.0)
+    ph = Astronomy.build_phase_cubes(pp, 120, 1.0)
+    @test ph[:cold] .+ ph[:unstable] .+ ph[:warm] ≈ ph[:model]
+    @test sum(ph[:cold]) / sum(ph[:model]) ≈ 10 * 1 / (10 * 1 + 6 * 4 + 3 * 8) rtol = 1e-3
+    ph2 = Astronomy.build_phase_cubes(pp, 120, 1.0; cold_min_amp=20.0)
+    @test sum(ph2[:cold]) == 0
 end
