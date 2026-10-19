@@ -248,10 +248,20 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
         comp = components[g]
         model .+= comp
         row = component_rows[g]
-        # Each Gaussian contributes to exactly one width group and one
-        # Doppler-temperature group based on its moment-weighted summaries.
-        width_groups[string(row["width_group"])] .+= comp
-        temperature_groups[string(row["td_group"])] .+= comp
+        # Each Gaussian is grouped pixel by pixel by its own width there. Without
+        # the width term (lambda_var_sig = 0) one component can be narrow in some
+        # pixels and broad in others, so a map-averaged width would misfile it.
+        sigma_kms_map = abs(Float64(dv_kms)) .* @view(params[3g, :, :])
+        for y in axes(comp, 2), x in axes(comp, 1)
+            s = sigma_kms_map[x, y]
+            isfinite(s) || continue
+            w = width_groups[rohsa_width_group(s)]
+            t = temperature_groups[rohsa_td_group(doppler_temperature_k(s))]
+            @inbounds for k in axes(comp, 3)
+                w[x, y, k] += comp[x, y, k]
+                t[x, y, k] += comp[x, y, k]
+            end
+        end
 
         if write_cubes
             component_path = joinpath(crop_dir, "$(file_prefix)_component_g$(g)$(fits_ext)")

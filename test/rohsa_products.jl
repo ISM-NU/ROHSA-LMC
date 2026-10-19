@@ -67,6 +67,21 @@ using Test
         @test products.fit_row["total_model_over_data"] ≈ 1.0
         @test products.group_nhi["td_lt_500k_fraction"] == ones(2, 2) .* (products.group_nhi["td_lt_500k"][1, 1] / products.model_nhi[1, 1])
 
+        # Grouping is per pixel: a component narrow in one pixel and broad in the
+        # others counts as cold only where it is narrow.
+        mixed = copy(params)
+        mixed[6, :, :] .= 8.0
+        mixed[6, 1, 1] = 1.0
+        mixed_components = Astronomy.reconstruct_rohsa_components(mixed, 3)
+        mixed_products = Astronomy.write_rohsa_decomposition_products(
+            dir, "region", header, mixed, mixed_components, mixed_components[1] .+ mixed_components[2];
+            n_gauss=2, write_cubes=false, run_label="rohsa_mixed",
+        )
+        @test mixed_products.group_nhi["td_lt_500k_fraction"][1, 1] ≈ 1.0
+        @test mixed_products.group_nhi["td_lt_500k_fraction"][2, 2] ≈
+              mixed_products.group_nhi["td_lt_500k"][2, 2] / mixed_products.model_nhi[2, 2]
+        @test mixed_products.group_nhi["td_lt_500k_fraction"][2, 2] < 1.0
+
         # Cubes off (the CLI default): maps and metrics only, no 3D files.
         mktempdir() do slim_dir
             slim = Astronomy.write_rohsa_decomposition_products(
