@@ -110,13 +110,13 @@ function gaussian_phase_weights(sigma_kms::Real, amp::Real; cold_max_k::Real=500
 end
 
 """
-    build_phase_cubes(params, nv, channel_kms; cold_max_k=500.0, warm_min_k=5000.0, cold_min_amp=0.0)
+    build_phase_cubes(params, nv, channel_kms; cold_max_k=500.0, warm_min_k=5000.0, cold_min_amp=0.0, log_width=0.2)
 
 Model cube and `cold` / `unstable` / `warm` cubes (x, y, v; Float32), each Gaussian
 shared between phases by `gaussian_phase_weights`.
 """
 function build_phase_cubes(params, nv::Int, channel_kms::Real; cold_max_k::Real=500.0,
-                           warm_min_k::Real=5000.0, cold_min_amp::Real=0.0)
+                           warm_min_k::Real=5000.0, cold_min_amp::Real=0.0, log_width::Real=0.2)
     n_gauss = size(params, 1) ÷ 3
     nx, ny = size(params, 2), size(params, 3)
     cubes = Dict(name => zeros(Float32, nx, ny, nv) for name in (:model, ROHSA_PHASE_NAMES...))
@@ -128,7 +128,7 @@ function build_phase_cubes(params, nv::Int, channel_kms::Real; cold_max_k::Real=
                 amp > 0 || continue
                 mu = params[3g - 1, x, y]
                 sigma = max(params[3g, x, y], 1e-6)
-                wc, wu, ww = Float32.(gaussian_phase_weights(sigma * channel_kms, amp; cold_max_k, warm_min_k, cold_min_amp))
+                wc, wu, ww = Float32.(gaussian_phase_weights(sigma * channel_kms, amp; cold_max_k, warm_min_k, cold_min_amp, log_width))
                 for k in 1:nv
                     v = Float32(amp * exp(-((k - 1 - mu)^2) / (2sigma^2)))
                     model[x, y, k] += v
