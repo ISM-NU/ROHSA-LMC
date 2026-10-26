@@ -73,6 +73,14 @@ Set `fits_extension = ".fits.fz"` to write ROHSA FITS products through the same
 path-based compression helper used by VGT outputs. This requires `fpack` on
 `PATH`; leave the default `.fits` for uncompressed products.
 
+Set `spectral_kernel` in `[input]` (`"hanning"` or `"gauss<σ in channels>"`, default
+`"none"`) to smooth every spectrum before ROHSA. Smoothing runs on the raw crop,
+before negatives are clipped, and the noise passed to ROHSA is the raw estimate
+times sqrt(Σk²) (the channel-difference estimator cannot measure correlated
+noise). Fitted widths include the kernel in quadrature; the kernel's equivalent
+σ is written to the crop header (`SPKSIGCH`, channels) and the run summary, and
+analyses must deconvolve with it before applying width cuts.
+
 To use a different config file:
 
 ```bash

@@ -129,7 +129,8 @@ function run_rohsa_preprocessing(opts)
         region_products = write_region_products(input, header, region, region_dir;
                                                 retain_cube=retain_cube,
                                                 write_region_fits=write_region_fits,
-                                                fits_extension=fits_extension)
+                                                fits_extension=fits_extension,
+                                                spectral_kernel=opts["spectral-kernel"])
         push!(region_rows, Dict{String, Any}(
             "region" => region.label,
             "x0" => region.x0,
@@ -138,6 +139,8 @@ function run_rohsa_preprocessing(opts)
             "ny" => region.ny,
             "spatial_stride" => region.x_stride,
             "noise_estimate" => region_products.sigma,
+            "spectral_kernel" => opts["spectral-kernel"],
+            "spectral_kernel_sigma_chan" => region_products.kernel_sigma_chan,
             "fits_path" => region_products.fits_path,
         ))
 

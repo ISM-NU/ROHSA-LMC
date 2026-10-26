@@ -23,6 +23,7 @@ const ROHSA_CONFIG_KEYS = Dict(
     "memory_gb" => "memory-gb",
     "safe_memory_fraction" => "safe-memory-fraction",
     "fits_extension" => "fits-extension",
+    "spectral_kernel" => "spectral-kernel",
     "n_gauss" => "n-gauss",
     "lambda_amp" => "lambda-amp",
     "lambda_mu" => "lambda-mu",
@@ -85,6 +86,9 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     "memory-gb" => "auto",
     "safe-memory-fraction" => "0.70",
     "fits-extension" => ".fits",
+    # Spectral smoothing applied to the raw crop before clipping (rohsa/inputs.jl
+    # spectral_kernel_weights); fitted widths then include the kernel in quadrature.
+    "spectral-kernel" => "none",
     "auto-config-enabled" => "false",
     "auto-config-profile" => "physical_decomposition",
     "auto-config-max-candidates" => "24",

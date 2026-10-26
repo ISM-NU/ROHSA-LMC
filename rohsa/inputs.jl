@@ -142,6 +142,70 @@ function robust_channel_difference_noise(cube; max_samples::Int=2_000_000)
     return sigma > 0 ? sigma : NaN
 end
 
+"""
+    spectral_kernel_weights(name)
+
+Normalized channel weights for `spectral_kernel` ("none", "hanning", or "gauss<s>" with
+the Gaussian sigma `s` in channels, e.g. "gauss1", "gauss1.5"), truncated at ±4σ.
+"""
+function spectral_kernel_weights(name::AbstractString)
+    name == "none" && return [1.0]
+    name == "hanning" && return [0.25, 0.5, 0.25]
+    if startswith(name, "gauss")
+        s = tryparse(Float64, name[6:end])
+        (s === nothing || s <= 0) && throw(ArgumentError("spectral_kernel `$name`: expected gauss<sigma in channels>"))
+        h = ceil(Int, 4s)
+        w = [exp(-0.5 * (i / s)^2) for i in -h:h]
+        return w ./ sum(w)
+    end
+    throw(ArgumentError("Unknown spectral_kernel `$name` (none, hanning, gauss<sigma_chan>)"))
+end
+
+# White noise of rms σ has rms σ·sqrt(Σk²) after smoothing. The channel-difference
+# estimator cannot measure this on a smoothed cube (neighbours become correlated and
+# it reads 2-4x low), so ROHSA's noise must come from the raw cube times this factor.
+spectral_kernel_noise_factor(w) = sqrt(sum(abs2, w))
+
+# Equivalent Gaussian sigma of the kernel in channels: fitted line widths add it in
+# quadrature (σ_fit² = σ_true² + σ_k² · Δv²); analyses must deconvolve with it.
+spectral_kernel_sigma(w) = (h = length(w) ÷ 2; sqrt(sum(w[i + h + 1] * i^2 for i in -h:h)))
+
+"""
+    smooth_spectra(cube, w)
+
+Convolve every spectrum (third axis) with the odd-length kernel `w`. Non-finite voxels
+stay non-finite and are left out of their neighbours' sums; weights are renormalized
+over the finite channels so the cube edges are not dimmed. Apply to the raw cube,
+before zero-clipping: smoothing clipped data would bias faint channels upward.
+"""
+function smooth_spectra(cube::AbstractArray{T, 3}, w::AbstractVector) where {T}
+    length(w) == 1 && return copy(cube)
+    nx, ny, nv = size(cube)
+    h = length(w) ÷ 2
+    out = similar(cube)
+    Threads.@threads for j in 1:ny
+        for i in 1:nx, k in 1:nv
+            v = cube[i, j, k]
+            if !isfinite(v)
+                out[i, j, k] = v
+                continue
+            end
+            acc = 0.0
+            wsum = 0.0
+            for d in -h:h
+                kk = k + d
+                1 <= kk <= nv || continue
+                x = cube[i, j, kk]
+                isfinite(x) || continue
+                acc += w[d + h + 1] * x
+                wsum += w[d + h + 1]
+            end
+            out[i, j, k] = T(acc / wsum)
+        end
+    end
+    return out
+end
+
 function read_region_cube(input::AbstractString, region::InputRegion)
     f = FITS(input)
     try
@@ -257,8 +321,15 @@ end
 
 function write_region_products(input::AbstractString, header, region::InputRegion, region_dir::AbstractString;
                                retain_cube::Bool=true, write_region_fits::Bool=true,
-                               fits_extension::AbstractString=".fits")
+                               fits_extension::AbstractString=".fits",
+                               spectral_kernel::AbstractString="none")
     mkpath(region_dir)
+    kernel = spectral_kernel_weights(spectral_kernel)
+    kernel_sigma_chan = spectral_kernel_sigma(kernel)
+    if length(kernel) > 1
+        region_header["SPKERNEL"] = spectral_kernel
+        region_header["SPKSIGCH"] = kernel_sigma_chan
+    end
     region_header = deepcopy(header)
     update_region_header!(region_header, region)
     fits_ext = Astronomy.normalize_fits_extension(fits_extension)
@@ -269,15 +340,21 @@ function write_region_products(input::AbstractString, header, region::InputRegio
     cube = retain_cube || write_region_fits ? read_region_cube(input, region) : nothing
     if cube !== nothing
         sigma = robust_channel_difference_noise(cube)  # raw cube, before clipping
+        if length(kernel) > 1
+            cube = smooth_spectra(cube, kernel)
+            sigma *= spectral_kernel_noise_factor(kernel)
+        end
         cube .= map(v -> isfinite(v) && v > 0 ? v : 0.0f0, cube)
         write_region_fits && Astronomy.write_fits(fits_path, cube; header=region_header)
         rohsa_input_path = write_cube_bin(joinpath(region_dir, string(region.label, ".bin")), cube)
     else
+        length(kernel) == 1 ||
+            throw(ArgumentError("spectral_kernel needs the cube in memory; set write_region_fits = true"))
         rohsa_input_path = write_streamed_cube_dat(input, joinpath(region_dir, string(region.label, ".dat")), region)
         sigma = estimate_streamed_noise(input, region)
     end
     isfinite(sigma) || (sigma = 1.0)
     rms_path = joinpath(region_dir, "rms_map.dat")
     write_rms_map(rms_path, region.nx, region.ny, sigma)
-    return (; fits_path, rohsa_input_path, rms_path, sigma, header=region_header, cube)
+    return (; fits_path, rohsa_input_path, rms_path, sigma, header=region_header, cube, kernel_sigma_chan)
 end
