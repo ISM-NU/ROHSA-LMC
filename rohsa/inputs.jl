@@ -326,12 +326,12 @@ function write_region_products(input::AbstractString, header, region::InputRegio
     mkpath(region_dir)
     kernel = spectral_kernel_weights(spectral_kernel)
     kernel_sigma_chan = spectral_kernel_sigma(kernel)
+    region_header = deepcopy(header)
+    update_region_header!(region_header, region)
     if length(kernel) > 1
         region_header["SPKERNEL"] = spectral_kernel
         region_header["SPKSIGCH"] = kernel_sigma_chan
     end
-    region_header = deepcopy(header)
-    update_region_header!(region_header, region)
     fits_ext = Astronomy.normalize_fits_extension(fits_extension)
     fits_path = joinpath(region_dir, string(region.label, fits_ext))
     # Deriving products or visuals needs the cube later; preflight-style runs can
