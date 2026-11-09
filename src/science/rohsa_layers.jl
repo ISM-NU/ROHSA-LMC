@@ -91,6 +91,14 @@ end
 const ROHSA_PHASE_NAMES = (:cold, :unstable, :warm)
 
 """
+    fwhm_doppler_temperature(fwhm_kms)
+
+Doppler temperature (K) of a Gaussian with this FWHM, for phase edges given as line
+widths: T_D = DOPPLER_TEMPERATURE_FACTOR σ², σ = FWHM / (2√(2 ln 2)).
+"""
+fwhm_doppler_temperature(fwhm_kms::Real) = DOPPLER_TEMPERATURE_FACTOR * (fwhm_kms / (2sqrt(2log(2))))^2
+
+"""
     gaussian_phase_weights(sigma_kms, amp; cold_max_k=500.0, warm_min_k=5000.0, cold_min_amp=0.0, log_width=0.2)
 
 Weights `(cold, unstable, warm)` of one Gaussian from its Doppler temperature

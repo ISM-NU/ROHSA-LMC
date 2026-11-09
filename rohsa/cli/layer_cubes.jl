@@ -16,15 +16,18 @@ using Astronomy
 #
 # --split-by width writes cold / unstable / warm cubes instead (Gaussians by
 # Doppler temperature: < 500 K, 500-5000 K, >= 5000 K); --cold-min-amp drops
-# narrow Gaussians fainter than K (fitted noise).
+# narrow Gaussians fainter than K (fitted noise). --cold-max-fwhm / --warm-min-fwhm
+# move those edges to line widths in km/s; giving both the same value makes a
+# two-way split (narrow / broad) with an empty unstable cube.
 
-const USAGE = "Usage: julia --project=. rohsa/cli/layer_cubes.jl <region_dir> <n_gauss> <out_dir> [--split-kms 20] [--width-kms 3] [--ref-sigma-px 30] [--noise K] [--ny-chunks N] [--split-by velocity|width] [--cold-min-amp K] [--phase-log-width W]"
+const USAGE = "Usage: julia --project=. rohsa/cli/layer_cubes.jl <region_dir> <n_gauss> <out_dir> [--split-kms 20] [--width-kms 3] [--ref-sigma-px 30] [--noise K] [--ny-chunks N] [--split-by velocity|width] [--cold-min-amp K] [--phase-log-width W] [--cold-max-fwhm KMS] [--warm-min-fwhm KMS]"
 
 function parse_layer_args(args)
     length(args) >= 3 || throw(ArgumentError(USAGE))
     opts = Dict("--split-kms" => "20", "--width-kms" => "3", "--ref-sigma-px" => "30",
                 "--noise" => "", "--ny-chunks" => "16",
-                "--split-by" => "velocity", "--cold-min-amp" => "0", "--phase-log-width" => "0.2")
+                "--split-by" => "velocity", "--cold-min-amp" => "0", "--phase-log-width" => "0.2",
+                "--cold-max-fwhm" => "", "--warm-min-fwhm" => "")
     rest = args[4:end]
     iseven(length(rest)) || throw(ArgumentError(USAGE))
     for i in 1:2:length(rest)
@@ -36,7 +39,12 @@ function parse_layer_args(args)
             ref_sigma_px=parse(Float64, opts["--ref-sigma-px"]),
             noise=isempty(opts["--noise"]) ? nothing : parse(Float64, opts["--noise"]),
             ny_chunks=parse(Int, opts["--ny-chunks"]), split_by=opts["--split-by"],
-            cold_min_amp=parse(Float64, opts["--cold-min-amp"]), phase_log_width=parse(Float64, opts["--phase-log-width"]))
+            cold_min_amp=parse(Float64, opts["--cold-min-amp"]), phase_log_width=parse(Float64, opts["--phase-log-width"]),
+            # Phase edges in K (defaults 500 / 5000 K), or from line widths when given in km/s.
+            cold_max_k=isempty(opts["--cold-max-fwhm"]) ? 500.0 :
+                Astronomy.fwhm_doppler_temperature(parse(Float64, opts["--cold-max-fwhm"])),
+            warm_min_k=isempty(opts["--warm-min-fwhm"]) ? 5000.0 :
+                Astronomy.fwhm_doppler_temperature(parse(Float64, opts["--warm-min-fwhm"])))
 end
 
 # The ROHSA wrapper writes one scalar noise value to every pixel of rms_map.dat.
@@ -77,7 +85,8 @@ function main(args=ARGS)
     opt.split_by in ("velocity", "width") || throw(ArgumentError("--split-by must be velocity or width"))
     reference = Astronomy.reference_centroid_channels(params; sigma_pixels=opt.ref_sigma_px)
     cubes = opt.split_by == "width" ?
-        Astronomy.build_phase_cubes(params, nv, channel_kms; cold_min_amp=opt.cold_min_amp, log_width=opt.phase_log_width) :
+        Astronomy.build_phase_cubes(params, nv, channel_kms; cold_max_k=opt.cold_max_k, warm_min_k=opt.warm_min_k,
+                                    cold_min_amp=opt.cold_min_amp, log_width=opt.phase_log_width) :
         Astronomy.build_layer_cubes(params, nv, channel_kms; reference,
                                     split_kms=opt.split_kms, width_kms=opt.width_kms)
 
@@ -103,6 +112,7 @@ function main(args=ARGS)
                             "split_kms" => opt.split_kms, "width_kms" => opt.width_kms,
                             "ref_sigma_px" => opt.ref_sigma_px, "noise" => noise,
                             "split_by" => opt.split_by, "cold_min_amp" => opt.cold_min_amp, "phase_log_width" => opt.phase_log_width,
+                            "cold_max_k" => opt.cold_max_k, "warm_min_k" => opt.warm_min_k,
                             "vgt_configs" => configs); sorted=true)
     end
     return 0

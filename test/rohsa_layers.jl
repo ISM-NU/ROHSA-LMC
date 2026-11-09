@@ -43,4 +43,10 @@ using Test
     @test sum(ph[:cold]) / sum(ph[:model]) ≈ 10 * 1 / (10 * 1 + 6 * 4 + 3 * 8) rtol = 1e-2
     ph2 = Astronomy.build_phase_cubes(pp, 120, 1.0; cold_min_amp=100.0)
     @test sum(ph2[:cold]) < 1e-2 * sum(ph2[:model])
+    # Edges given as FWHM: a Gaussian exactly at the edge is half narrow; equal edges leave no unstable gas.
+    t7 = Astronomy.fwhm_doppler_temperature(7.0)
+    @test 0.4 < Astronomy.gaussian_phase_weights(7.0 / 2.3548, 5.0; cold_max_k=t7, warm_min_k=t7)[1] < 0.6
+    ph3 = Astronomy.build_phase_cubes(pp, 120, 1.0; cold_max_k=t7, warm_min_k=t7)
+    @test sum(ph3[:unstable]) < 1e-6 * sum(ph3[:model])
+    @test ph3[:cold] .+ ph3[:warm] ≈ ph3[:model] rtol = 1e-4
 end
