@@ -24,6 +24,7 @@ const ROHSA_CONFIG_KEYS = Dict(
     "safe_memory_fraction" => "safe-memory-fraction",
     "fits_extension" => "fits-extension",
     "spectral_kernel" => "spectral-kernel",
+    "clip_negative" => "clip-negative",
     "n_gauss" => "n-gauss",
     "lambda_amp" => "lambda-amp",
     "lambda_mu" => "lambda-mu",
@@ -89,6 +90,11 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     # Spectral smoothing applied to the raw crop before clipping (rohsa/inputs.jl
     # spectral_kernel_weights); fitted widths then include the kernel in quadrature.
     "spectral-kernel" => "none",
+    # Zero negative voxels before ROHSA (historical default). Upstream ROHSA does
+    # not require it, and on noise-dominated cubes (CO, line-free H I channels)
+    # it turns zero-mean noise into a positive pedestal that ROHSA fits with
+    # broad components. NaNs are always written as 0.
+    "clip-negative" => "true",
     "auto-config-enabled" => "false",
     "auto-config-profile" => "physical_decomposition",
     "auto-config-max-candidates" => "24",

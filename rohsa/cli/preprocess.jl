@@ -130,7 +130,8 @@ function run_rohsa_preprocessing(opts)
                                                 retain_cube=retain_cube,
                                                 write_region_fits=write_region_fits,
                                                 fits_extension=fits_extension,
-                                                spectral_kernel=opts["spectral-kernel"])
+                                                spectral_kernel=opts["spectral-kernel"],
+                                                clip_negative=parse(Bool, opts["clip-negative"]))
         push!(region_rows, Dict{String, Any}(
             "region" => region.label,
             "x0" => region.x0,
@@ -141,6 +142,7 @@ function run_rohsa_preprocessing(opts)
             "noise_estimate" => region_products.sigma,
             "spectral_kernel" => opts["spectral-kernel"],
             "spectral_kernel_sigma_chan" => region_products.kernel_sigma_chan,
+            "clip_negative" => opts["clip-negative"],
             "fits_path" => region_products.fits_path,
         ))
 

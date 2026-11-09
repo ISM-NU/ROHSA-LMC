@@ -47,3 +47,17 @@ end
     s = RohsaInputsTest.smooth_spectra(c, RohsaInputsTest.spectral_kernel_weights("hanning"))
     @test isnan(s[1, 1, 5]) && all(s[1, 1, [1:4; 6:9]] .≈ 1)
 end
+
+@testset "ROHSA input cleaning: NaN to 0, negatives kept unless clipped" begin
+    c = RohsaInputsTest.clean_voxel
+    @test c(NaN32, true) == 0.0f0 && c(NaN32, false) == 0.0f0
+    @test c(Inf32, false) == 0.0f0
+    @test c(-0.5f0, true) == 0.0f0          # historical default
+    @test c(-0.5f0, false) == -0.5f0        # clip_negative = false keeps zero-mean noise
+    @test c(1.25f0, true) == 1.25f0
+    # Why it matters: clipping zero-mean noise leaves a positive pedestal.
+    rng = MersenneTwister(3)
+    n = Float32.(randn(rng, 100_000))
+    @test sum(c.(n, true)) / length(n) > 0.35           # ~0.4 sigma
+    @test abs(sum(c.(n, false)) / length(n)) < 0.02
+end

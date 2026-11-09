@@ -284,7 +284,8 @@ function estimate_streamed_noise(input::AbstractString, region::InputRegion; max
     return sigma > 0 ? sigma : NaN
 end
 
-function write_streamed_cube_dat(input::AbstractString, dat_path::AbstractString, region::InputRegion)
+function write_streamed_cube_dat(input::AbstractString, dat_path::AbstractString, region::InputRegion;
+                                 clip_negative::Bool=true)
     f = FITS(input)
     try
         _, _, nv = size(f[1])
@@ -296,9 +297,8 @@ function write_streamed_cube_dat(input::AbstractString, dat_path::AbstractString
                 row = Float32.(read(f[1], x_range, y_src:y_src, 1:nv))
                 for x in 1:region.nx, k in 1:nv
                     v = row[x, 1, k]
-                    # Upstream ROHSA expects nonnegative brightness values here;
-                    # match the in-memory path by zeroing invalid or negative voxels.
-                    clean = isfinite(v) && v > 0 ? v : 0.0f0
+                    # Same rule as the in-memory path (clean_voxel).
+                    clean = clean_voxel(v, clip_negative)
                     @printf(io, "%d\t%d\t%d\t%.16f\n", k - 1, y_out - 1, x - 1, clean)
                 end
             end
@@ -319,10 +319,17 @@ function write_rms_map(rms_path::AbstractString, nx::Int, ny::Int, sigma::Real)
     return rms_path
 end
 
+# NaN/Inf become 0 (ROHSA needs finite values). Negative voxels become 0 only when
+# clip_negative: upstream ROHSA does not require it, and clipping zero-mean noise
+# leaves a positive pedestal (mean ~0.4 sigma per channel) that ROHSA fits with
+# broad components, which dominates noise-only areas such as most of a CO cube.
+clean_voxel(v, clip_negative::Bool) = !isfinite(v) ? 0.0f0 : (clip_negative && v < 0 ? 0.0f0 : Float32(v))
+
 function write_region_products(input::AbstractString, header, region::InputRegion, region_dir::AbstractString;
                                retain_cube::Bool=true, write_region_fits::Bool=true,
                                fits_extension::AbstractString=".fits",
-                               spectral_kernel::AbstractString="none")
+                               spectral_kernel::AbstractString="none",
+                               clip_negative::Bool=true)
     mkpath(region_dir)
     kernel = spectral_kernel_weights(spectral_kernel)
     kernel_sigma_chan = spectral_kernel_sigma(kernel)
@@ -332,6 +339,7 @@ function write_region_products(input::AbstractString, header, region::InputRegio
         region_header["SPKERNEL"] = spectral_kernel
         region_header["SPKSIGCH"] = kernel_sigma_chan
     end
+    clip_negative || (region_header["CLIPNEG"] = false)
     fits_ext = Astronomy.normalize_fits_extension(fits_extension)
     fits_path = joinpath(region_dir, string(region.label, fits_ext))
     # Deriving products or visuals needs the cube later; preflight-style runs can
@@ -344,13 +352,14 @@ function write_region_products(input::AbstractString, header, region::InputRegio
             cube = smooth_spectra(cube, kernel)
             sigma *= spectral_kernel_noise_factor(kernel)
         end
-        cube .= map(v -> isfinite(v) && v > 0 ? v : 0.0f0, cube)
+        cube .= clean_voxel.(cube, clip_negative)
         write_region_fits && Astronomy.write_fits(fits_path, cube; header=region_header)
         rohsa_input_path = write_cube_bin(joinpath(region_dir, string(region.label, ".bin")), cube)
     else
         length(kernel) == 1 ||
             throw(ArgumentError("spectral_kernel needs the cube in memory; set write_region_fits = true"))
-        rohsa_input_path = write_streamed_cube_dat(input, joinpath(region_dir, string(region.label, ".dat")), region)
+        rohsa_input_path = write_streamed_cube_dat(input, joinpath(region_dir, string(region.label, ".dat")), region;
+                                                    clip_negative=clip_negative)
         sigma = estimate_streamed_noise(input, region)
     end
     isfinite(sigma) || (sigma = 1.0)
