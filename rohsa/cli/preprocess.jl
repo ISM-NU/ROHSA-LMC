@@ -132,7 +132,8 @@ function run_rohsa_preprocessing(opts)
                                                 fits_extension=fits_extension,
                                                 spectral_kernel=opts["spectral-kernel"],
                                                 clip_negative=parse(Bool, opts["clip-negative"]),
-                                                noise_map=opts["noise-map"])
+                                                noise_map=opts["noise-map"],
+                                                holdout_mask=opts["holdout-mask"])
         push!(region_rows, Dict{String, Any}(
             "region" => region.label,
             "x0" => region.x0,
@@ -145,6 +146,7 @@ function run_rohsa_preprocessing(opts)
             "spectral_kernel_sigma_chan" => region_products.kernel_sigma_chan,
             "clip_negative" => opts["clip-negative"],
             "noise_map" => opts["noise-map"],
+            "holdout_mask" => opts["holdout-mask"],
             "fits_path" => region_products.fits_path,
         ))
 

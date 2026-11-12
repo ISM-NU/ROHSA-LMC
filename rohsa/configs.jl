@@ -26,6 +26,7 @@ const ROHSA_CONFIG_KEYS = Dict(
     "spectral_kernel" => "spectral-kernel",
     "clip_negative" => "clip-negative",
     "noise_map" => "noise-map",
+    "holdout_mask" => "holdout-mask",
     "n_gauss" => "n-gauss",
     "lambda_amp" => "lambda-amp",
     "lambda_mu" => "lambda-mu",
@@ -105,6 +106,10 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     # (robust_channel_difference_noise). Pixels with NaN or <= 0 are written as 0, which ROHSA skips in the data
     # term at the full-resolution level (their parameters follow the smoothing term): used for held-out blocks.
     "noise-map" => "",
+    # Held-out pixels (2D FITS, crop-sized, nonzero = held out): their noise is set to 0, so ROHSA fits them from
+    # the smoothing term only (full-resolution level; coarse levels still average them in). Scoring the fit on
+    # them measures how well a configuration predicts spectra it did not fit.
+    "holdout-mask" => "",
     "auto-config-enabled" => "false",
     "auto-config-profile" => "physical_decomposition",
     "auto-config-max-candidates" => "24",
