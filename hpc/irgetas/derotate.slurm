@@ -10,13 +10,13 @@
 
 # Shift cubes by the local disk velocity and write a VGT config per cube
 # (rohsa/cli/derotate_cube.jl).
-#   sbatch --export=ALL,VGT_REPO=$PWD,REFERENCE=<reference_velocity_channels.fits>,OUT_DIR=<out>,CONFIG_DIR=<dir with vgt_<name>.toml>,CUBES="name=cube.fits ..." hpc/irgetas/derotate.slurm
+#   sbatch --export=ALL,ROHSA_REPO=$PWD,REFERENCE=<reference_velocity_channels.fits>,OUT_DIR=<out>,CONFIG_DIR=<dir with vgt_<name>.toml>,CUBES="name=cube.fits ..." hpc/irgetas/derotate.slurm
 
 set -euo pipefail
-: "${VGT_REPO:?}" "${REFERENCE:?}" "${OUT_DIR:?}" "${CONFIG_DIR:?}" "${CUBES:?}"
-cd "$VGT_REPO"
+: "${ROHSA_REPO:?}" "${REFERENCE:?}" "${OUT_DIR:?}" "${CONFIG_DIR:?}" "${CUBES:?}"
+cd "$ROHSA_REPO"
 mkdir -p validation_output/vgt_irgetas_logs
-export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$VGT_REPO/.julia-irgetas}"
+export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$ROHSA_REPO/.julia-irgetas}"
 threads="${SLURM_CPUS_PER_TASK:-1}"
 echo "job_id=$SLURM_JOB_ID reference=$REFERENCE out=$OUT_DIR threads=$threads"
 # shellcheck disable=SC2086

@@ -1,9 +1,9 @@
 function derive_rohsa_products_stage(region_dir, region_label::AbstractString, header, data_cube,
                                      rohsa_out::AbstractString, n_gauss::Int; run_label::AbstractString="",
                                      fits_extension::AbstractString=".fits", write_cubes::Bool=false)
-    params = Astronomy.read_rohsa_parameters(rohsa_out, n_gauss, size(data_cube, 1), size(data_cube, 2))
-    components = Astronomy.reconstruct_rohsa_components(params, size(data_cube, 3))
-    products = Astronomy.write_rohsa_decomposition_products(
+    params = RohsaLMC.read_rohsa_parameters(rohsa_out, n_gauss, size(data_cube, 1), size(data_cube, 2))
+    components = RohsaLMC.reconstruct_rohsa_components(params, size(data_cube, 3))
+    products = RohsaLMC.write_rohsa_decomposition_products(
         region_dir,
         region_label,
         header,

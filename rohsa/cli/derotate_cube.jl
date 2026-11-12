@@ -1,11 +1,11 @@
 using DrWatson
 Base.exit_on_sigint(false)
-quickactivate(@__DIR__, "Astronomy")
+quickactivate(@__DIR__, "RohsaLMC")
 
 using Statistics
 using TOML
 using Astronomy
-
+using RohsaLMC
 # De-rotate cubes by the local disk velocity (src/science/derotate.jl) and write
 # a VGT config for each, copied from an existing config with only the input and
 # output paths changed, so the de-rotated run differs from the original in
@@ -60,7 +60,7 @@ function main(args=ARGS)
     trace = Dict{String, Any}("reference" => reference_path, "cubes" => Dict{String, Any}())
     if !isempty(column_path)
         nv_first = Int(read_fits_header(last(first(inputs)))["NAXIS3"])
-        reference, weight = Astronomy.sanitize_reference(reference, Float64.(read_fits_image(column_path)), nv_first)
+        reference, weight = RohsaLMC.sanitize_reference(reference, Float64.(read_fits_image(column_path)), nv_first)
         write_fits(joinpath(out_dir, "reference_velocity_channels_sanitized.fits"), Float32.(reference); header=nothing)
         write_fits(joinpath(out_dir, "reference_trust_weight.fits"), Float32.(weight); header=nothing)
         trace["column"] = column_path
@@ -72,7 +72,7 @@ function main(args=ARGS)
         isfile(template) || throw(ArgumentError("Missing VGT config $template"))
         header = read_fits_header(path)
         cube = read_fits_image(path)
-        t = @elapsed out, omin = Astronomy.derotate_cube(cube, reference; integer_shift=name in integer_names)
+        t = @elapsed out, omin = RohsaLMC.derotate_cube(cube, reference; integer_shift=name in integer_names)
         flux_in = sum(v -> isfinite(v) ? Float64(v) : 0.0, cube)
         flux_out = sum(v -> isfinite(v) ? Float64(v) : 0.0, out)
         observed = dropdims(any(isfinite, cube; dims=3); dims=3)
@@ -81,16 +81,16 @@ function main(args=ARGS)
             # measured from the negative tail, so take the one VGT itself uses.
             clipped = minimum(v -> isfinite(v) ? v : Inf, cube) >= 0
             sigma = clipped ? fill(Float64(TOML.parsefile(template)["noise"]["noise"]), size(observed)) :
-                              Astronomy.noise_sigma_map(cube)
+                              RohsaLMC.noise_sigma_map(cube)
             println("$(name): padding with beam-correlated noise, clipped=$(clipped), sigma median $(median(sigma)) range $(extrema(sigma))")
-            Astronomy.fill_padding!(out, observed; sigma, clip=clipped, beam_sigma_px=beam_fwhm_px / sqrt(8log(2)))
+            RohsaLMC.fill_padding!(out, observed; sigma, clip=clipped, beam_sigma_px=beam_fwhm_px / sqrt(8log(2)))
         else
-            Astronomy.fill_padding!(out, observed)
+            RohsaLMC.fill_padding!(out, observed)
         end
         cube = nothing
         stem = splitext(basename(path))[1]
         out_path = joinpath(out_dir, "$(stem)_derot.fits")
-        write_fits(out_path, out; header=Astronomy.derotated_header(header, size(out, 3), omin))
+        write_fits(out_path, out; header=RohsaLMC.derotated_header(header, size(out, 3), omin))
         println("$(name): $(size(out)) offsets $(omin)..$(omin + size(out, 3) - 1) channels, ",
                 "flux ratio $(flux_out / flux_in), $(round(t; digits=1)) s -> $out_path")
         cfg = TOML.parsefile(template)

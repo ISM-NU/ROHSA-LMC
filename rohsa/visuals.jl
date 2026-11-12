@@ -100,8 +100,8 @@ function write_rohsa_visuals(region_dir, n_gauss::Int, data_cube, products; run_
         CairoMakie.text!(ax, Float64(row["weighted_mu_kms"]), Float64(row["weighted_sigma_kms"]);
                          text=string("G", row["component"]), fontsize=12, align=(:left, :bottom))
     end
-    CairoMakie.hlines!(ax, [sqrt(500 / Astronomy.DOPPLER_TEMPERATURE_FACTOR),
-                            sqrt(5000 / Astronomy.DOPPLER_TEMPERATURE_FACTOR)];
+    CairoMakie.hlines!(ax, [sqrt(500 / RohsaLMC.DOPPLER_TEMPERATURE_FACTOR),
+                            sqrt(5000 / RohsaLMC.DOPPLER_TEMPERATURE_FACTOR)];
                        color=[:dodgerblue3, :indianred3], linestyle=:dash)
     sv_path = joinpath(visual_dir, "$(file_prefix)_sigma_velocity.png")
     CairoMakie.save(sv_path, sv_fig)

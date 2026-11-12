@@ -10,12 +10,12 @@
 
 set -euo pipefail
 
-: "${VGT_REPO:?submit_rohsa.sh must set VGT_REPO}"
+: "${ROHSA_REPO:?submit_rohsa.sh must set ROHSA_REPO}"
 : "${ROHSA_CONFIG:?submit_rohsa.sh must set ROHSA_CONFIG}"
 
-cd "$VGT_REPO"
+cd "$ROHSA_REPO"
 mkdir -p validation_output/rohsa_irgetas_logs
-export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$VGT_REPO/.julia-irgetas}"
+export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$ROHSA_REPO/.julia-irgetas}"
 
 echo "job_id=$SLURM_JOB_ID"
 echo "host=$(hostname)"

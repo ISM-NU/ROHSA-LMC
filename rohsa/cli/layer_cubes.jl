@@ -1,10 +1,10 @@
 using DrWatson
 Base.exit_on_sigint(false)
-quickactivate(@__DIR__, "Astronomy")
+quickactivate(@__DIR__, "RohsaLMC")
 
 using TOML
 using Astronomy
-
+using RohsaLMC
 # Build velocity-layer cubes (low / main / high) and the full model cube from one
 # ROHSA region directory, plus a VGT config per cube and one for the data crop
 # itself (the control: VGT on data vs on the model shows what the
@@ -42,9 +42,9 @@ function parse_layer_args(args)
             cold_min_amp=parse(Float64, opts["--cold-min-amp"]), phase_log_width=parse(Float64, opts["--phase-log-width"]),
             # Phase edges in K (defaults 500 / 5000 K), or from line widths when given in km/s.
             cold_max_k=isempty(opts["--cold-max-fwhm"]) ? 500.0 :
-                Astronomy.fwhm_doppler_temperature(parse(Float64, opts["--cold-max-fwhm"])),
+                RohsaLMC.fwhm_doppler_temperature(parse(Float64, opts["--cold-max-fwhm"])),
             warm_min_k=isempty(opts["--warm-min-fwhm"]) ? 5000.0 :
-                Astronomy.fwhm_doppler_temperature(parse(Float64, opts["--warm-min-fwhm"])))
+                RohsaLMC.fwhm_doppler_temperature(parse(Float64, opts["--warm-min-fwhm"])))
 end
 
 # The ROHSA wrapper writes one scalar noise value to every pixel of rms_map.dat.
@@ -81,13 +81,13 @@ function main(args=ARGS)
     noise = something(opt.noise, rohsa_scalar_noise(opt.region_dir))
     println("region=$region grid=$nx×$ny×$nv channel=$(channel_kms) km/s noise=$noise K")
 
-    params = Astronomy.read_rohsa_parameters(rohsa_out, opt.n_gauss, nx, ny)
+    params = RohsaLMC.read_rohsa_parameters(rohsa_out, opt.n_gauss, nx, ny)
     opt.split_by in ("velocity", "width") || throw(ArgumentError("--split-by must be velocity or width"))
-    reference = Astronomy.reference_centroid_channels(params; sigma_pixels=opt.ref_sigma_px)
+    reference = RohsaLMC.reference_centroid_channels(params; sigma_pixels=opt.ref_sigma_px)
     cubes = opt.split_by == "width" ?
-        Astronomy.build_phase_cubes(params, nv, channel_kms; cold_max_k=opt.cold_max_k, warm_min_k=opt.warm_min_k,
+        RohsaLMC.build_phase_cubes(params, nv, channel_kms; cold_max_k=opt.cold_max_k, warm_min_k=opt.warm_min_k,
                                     cold_min_amp=opt.cold_min_amp, log_width=opt.phase_log_width) :
-        Astronomy.build_layer_cubes(params, nv, channel_kms; reference,
+        RohsaLMC.build_layer_cubes(params, nv, channel_kms; reference,
                                     split_kms=opt.split_kms, width_kms=opt.width_kms)
 
     model_total = sum(Float64, cubes[:model])

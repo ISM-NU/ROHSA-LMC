@@ -1,0 +1,4 @@
+[submodule "deps/VGT"]
+	path = deps/VGT
+	url = git@github.com:ISM-NU/VGT-Denis.git
+	branch = split/vgt-method

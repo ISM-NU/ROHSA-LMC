@@ -1,6 +1,6 @@
 using DrWatson
 Base.exit_on_sigint(false)
-quickactivate(@__DIR__, "Astronomy")
+quickactivate(@__DIR__, "RohsaLMC")
 
 using CairoMakie
 using Dates
@@ -9,7 +9,7 @@ using Printf
 using TOML
 using Statistics
 using Astronomy
-
+using RohsaLMC
 const DEFAULT_CONFIG_PATH = normpath(joinpath(@__DIR__, "..", "..", "configs", "rohsa", "full_cube.toml"))
 
 Base.include(@__MODULE__, joinpath(@__DIR__, "..", "configs.jl"))

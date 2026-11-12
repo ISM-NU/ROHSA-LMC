@@ -1,0 +1,42 @@
+# Data Files (Too large for Git)
+*.fits
+*.fits.gz
+*.jld2
+*.hdf5
+*.h5
+
+# Local outputs and environments
+subcube/
+data/
+.venv/
+validation_output/
+profile_output/
+comparison_output/
+
+# Julia Specific
+Manifest.toml.bak
+*.jl.bak
+/config.jl
+/config.toml
+
+# Editor/OS Specific
+.DS_Store
+.vscode/
+.idea/
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+.mypy_cache/
+
+# Project metadata (Keep Project.toml and Manifest.toml for reproducibility)
+!Project.toml
+!Manifest.toml
+
+.codex
+CLAUDE.md
+AGENTS.md
+.claude
+inputs/*
+
+# shared data folder (symlink to ../lmc-data)
+/data

@@ -2,6 +2,7 @@ using Printf
 using Statistics
 using Test
 using Astronomy
+using RohsaLMC
 using TOML
 
 Base.include(@__MODULE__, joinpath(@__DIR__, "..", "rohsa", "configs.jl"))

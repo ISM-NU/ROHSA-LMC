@@ -53,5 +53,5 @@ sbatch \
     --cpus-per-task="$cpus" \
     --mem="$memory" \
     --time="$time_limit" \
-    --export=ALL,VGT_REPO="$repo",ROHSA_CONFIG="$config" \
+    --export=ALL,ROHSA_REPO="$repo",ROHSA_CONFIG="$config" \
     hpc/irgetas/rohsa.slurm

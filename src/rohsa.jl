@@ -1,29 +1,6 @@
 const HI_COLUMN_DENSITY_FACTOR = 1.82243e18
 const DOPPLER_TEMPERATURE_FACTOR = 121.1
 
-function velocity_axis_kms(header, nv::Int)
-    crval = Float64(header["CRVAL3"])
-    crpix = Float64(header["CRPIX3"])
-    cdelt = Float64(header["CDELT3"])
-    # FITS convention: channel k (1-based) is at CRVAL3 + (k - CRPIX3) * CDELT3.
-    native = [crval + (k - crpix) * cdelt for k in 1:nv]
-    unit = try
-        lowercase(strip(String(header["CUNIT3"])))
-    catch
-        ""
-    end
-    # Some survey cubes omit or vary CUNIT3 spelling; fall back to value scale
-    # so native m/s axes are still converted before physical products are made.
-    scale = if unit in ("m/s", "ms-1", "m s-1", "m/s ")
-        1e-3
-    elseif unit in ("km/s", "kms-1", "km s-1")
-        1.0
-    else
-        maximum(abs.(native)) > 1_000 ? 1e-3 : 1.0
-    end
-    return native .* scale, abs(cdelt * scale)
-end
-
 function readdlm_skip_comments(path::AbstractString)
     rows = Vector{Vector{Float64}}()
     for line in eachline(path)
