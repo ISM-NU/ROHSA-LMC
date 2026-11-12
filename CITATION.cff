@@ -2,6 +2,8 @@ cff-version: 1.2.0
 message: "If you use this software, cite it and the ROHSA paper (Marchal et al. 2019)."
 title: "ROHSA-LMC: ROHSA Gaussian decomposition, velocity layers and disk de-rotation for LMC H I cubes"
 type: software
+version: "0.1.0"
+date-released: "2026-11-12"
 authors:
   - family-names: Andreyev
     given-names: Denis
