@@ -188,6 +188,56 @@ function add_fraction_map!(dict, key::String, numerator, denominator)
     return dict
 end
 
+"""
+    header_with_bunit(header, unit) -> FITSHeader
+
+Copy of `header` whose BUNIT states `unit` (FITS-standard string; "" for a
+dimensionless quantity). `unit === nothing` removes BUNIT: a map whose unit is
+not known gets none rather than the cube's brightness unit.
+"""
+function header_with_bunit(header, unit::Union{Nothing, AbstractString})
+    keys_out = String[]
+    values_out = Any[]
+    comments_out = String[]
+    for (key, value, comment) in _header_cards(header)
+        String(key) == "BUNIT" && continue
+        push!(keys_out, String(key)); push!(values_out, value); push!(comments_out, String(comment))
+    end
+    if unit !== nothing
+        push!(keys_out, "BUNIT"); push!(values_out, String(unit)); push!(comments_out, "physical unit of the map values")
+    end
+    return FITSHeader(keys_out, values_out, comments_out)
+end
+
+# Unit of each ROHSA map product, by the product-name suffix. The cube header's
+# BUNIT (brightness, K) describes only the amplitude, model and residual cubes.
+const _ROHSA_MAP_BUNIT = (
+    "amp_k" => "K",
+    "mu_kms" => "km/s",
+    "sigma_kms" => "km/s",
+    "t_doppler_k" => "K",
+    "nhi_cm2" => "cm-2",
+    "residual_moment0_kkms" => "K km/s",
+    "fraction" => "",
+)
+
+"""
+    rohsa_map_bunit(name) -> Union{Nothing,String}
+
+BUNIT for a ROHSA map product called `name` (`nothing` when its unit is not
+listed, so a new product cannot silently inherit the cube's K).
+"""
+function rohsa_map_bunit(name::AbstractString)
+    for (suffix, unit) in _ROHSA_MAP_BUNIT
+        endswith(name, suffix) && return unit
+    end
+    return nothing
+end
+
+function write_rohsa_map(path, data, header, name::AbstractString)
+    write_fits(path, data; header=header_with_bunit(header, rohsa_map_bunit(name)))
+end
+
 function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label::AbstractString,
                                             header, params, components, data_cube;
                                             n_gauss::Int=length(components),
@@ -266,7 +316,7 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
             "nhi_cm2" => nhi,
         )
             path = joinpath(map_dir, "$(file_prefix)_component_g$(g)_$(name)$(fits_ext)")
-            write_fits(path, data; header=header)
+            write_rohsa_map(path, data, header, name)
             map_paths["component_g$(g)_$(name)"] = path
         end
     end
@@ -292,7 +342,7 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
         nhi = column_density_map(cube, dv_kms)
         group_nhi[group] = nhi
         map_path = joinpath(map_dir, "$(file_prefix)_$(group)_nhi_cm2$(fits_ext)")
-        write_fits(map_path, Float32.(nhi); header=header)
+        write_rohsa_map(map_path, Float32.(nhi), header, "nhi_cm2")
         map_paths["$(group)_nhi_cm2"] = map_path
     end
 
@@ -314,7 +364,7 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
         "residual_nhi_cm2" => residual_nhi,
     )
         path = joinpath(map_dir, "$(file_prefix)_$(name)$(fits_ext)")
-        write_fits(path, Float32.(data); header=header)
+        write_rohsa_map(path, Float32.(data), header, name)
         map_paths[name] = path
     end
 
@@ -323,7 +373,7 @@ function write_rohsa_decomposition_products(crop_dir::AbstractString, crop_label
         # density, so they describe the decomposition rather than raw data.
         add_fraction_map!(group_nhi, "$(group)_fraction", group_nhi[group], model_nhi)
         path = joinpath(map_dir, "$(file_prefix)_$(group)_fraction$(fits_ext)")
-        write_fits(path, Float32.(group_nhi["$(group)_fraction"]); header=header)
+        write_rohsa_map(path, Float32.(group_nhi["$(group)_fraction"]), header, "fraction")
         map_paths["$(group)_fraction"] = path
     end
 

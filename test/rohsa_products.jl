@@ -163,3 +163,57 @@ end
         @test_throws ArgumentError RohsaLMC.read_rohsa_parameters(path, 2, 1, 1)
     end
 end
+
+@testset "ROHSA map products state their own BUNIT" begin
+    # Cube header with BUNIT = K, as the H I cubes have: maps must not inherit it.
+    header = FITSHeader(
+        ["SIMPLE", "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "NAXIS3", "CRPIX3", "CRVAL3", "CDELT3", "CUNIT3", "BUNIT"],
+        [true, -32, 3, 2, 2, 3, 1.0, 0.0, 1000.0, "m/s", "K"],
+        fill("", 11),
+    )
+    params = zeros(Float64, 3, 2, 2)
+    params[1, :, :] .= 4.0
+    params[2, :, :] .= 1.0
+    params[3, :, :] .= 1.0
+    components = RohsaLMC.reconstruct_rohsa_components(params, 3)
+    data_cube = components[1]
+    bunit(path) = FITS(path) do f
+        h = read_header(f[1])
+        haskey(h, "BUNIT") ? strip(h["BUNIT"]) : nothing  # CFITSIO stores "" as " "
+    end
+    expected = Dict(
+        "component_g1_amp_k" => "K",
+        "component_g1_mu_kms" => "km/s",
+        "component_g1_sigma_kms" => "km/s",
+        "component_g1_t_doppler_k" => "K",
+        "component_g1_nhi_cm2" => "cm-2",
+        "narrow_nhi_cm2" => "cm-2",
+        "td_lt_500k_nhi_cm2" => "cm-2",
+        "model_nhi_cm2" => "cm-2",
+        "data_nhi_cm2" => "cm-2",
+        "residual_nhi_cm2" => "cm-2",
+        "residual_moment0_kkms" => "K km/s",
+        "narrow_fraction" => "",
+    )
+    mktempdir() do dir
+        products = RohsaLMC.write_rohsa_decomposition_products(dir, "region", header, params, components, data_cube; n_gauss=1)
+        for (name, unit) in expected
+            @test bunit(products.map_paths[name]) == unit
+        end
+        # Every written map is covered, so a new product cannot slip in with the cube's K.
+        @test Set(keys(products.map_paths)) ⊇ Set(keys(expected))
+        for (name, path) in products.map_paths
+            @test RohsaLMC.rohsa_map_bunit(name) !== nothing
+            @test bunit(path) == RohsaLMC.rohsa_map_bunit(name)
+        end
+        # The cubes are brightness and keep the cube's unit.
+        @test bunit(products.model_path) == "K"
+        @test bunit(products.cube_paths["residual"]) == "K"
+    end
+
+    # A product with no known unit gets no BUNIT, not the cube's K.
+    @test RohsaLMC.rohsa_map_bunit("something_new") === nothing
+    h = RohsaLMC.header_with_bunit(header, nothing)
+    @test !haskey(h, "BUNIT")
+    @test header["BUNIT"] == "K"
+end

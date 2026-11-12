@@ -6,7 +6,7 @@ module RohsaLMC
 
 using Astronomy
 using Astronomy: write_fits, read_fits_image, normalize_fits_extension, robust_negative_noise,
-                 velocity_axis_kms
+                 velocity_axis_kms, _header_cards
 using FFTW
 using FITSIO
 using Images
