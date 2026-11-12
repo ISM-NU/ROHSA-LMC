@@ -53,6 +53,7 @@ ROHSA workflow details: `rohsa/README.md`.
 - `rohsa/upstream/ROHSA/` - vendored Fortran source with OpenMP patches.
 - `configs/rohsa/` - method example configs. Experiment configs live in LMC-cold-gas.
 - `hpc/irgetas/` - Slurm scripts and runbook.
+- `scripts/` - stand-alone evaluation scripts (`scripts/README.md`).
 - `test/` - tests.
 - `docs/` - validation notes, upstream pull requests, the ROHSA paper. Map: `docs/README.md`.
 - `deps/VGT` - submodule, the VGT method.
