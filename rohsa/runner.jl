@@ -1,9 +1,18 @@
 upstream_rohsa_source_dir() = joinpath(@__DIR__, "upstream", "ROHSA")
 upstream_rohsa_binary() = joinpath(upstream_rohsa_source_dir(), "src", "ROHSA")
 
+# The binary is a build product (not in git): rebuild it when it is missing or
+# older than a Fortran source, header or the Makefile, as hpc/irgetas/rohsa.slurm does.
+function rohsa_binary_stale(bin::AbstractString, src_dir::AbstractString)
+    isfile(bin) || return true
+    built = mtime(bin)
+    is_source(f) = endswith(f, ".f") || endswith(f, ".f90") || endswith(f, ".h") || f == "Makefile"
+    return any(f -> is_source(f) && mtime(joinpath(src_dir, f)) > built, readdir(src_dir))
+end
+
 function ensure_rohsa_binary()
     bin = upstream_rohsa_binary()
-    isfile(bin) && return abspath(bin)
+    rohsa_binary_stale(bin, dirname(bin)) || return abspath(bin)
     source_dir = upstream_rohsa_source_dir()
     isdir(source_dir) ||
         throw(ArgumentError("Bundled upstream ROHSA source not found at $source_dir"))

@@ -3,3 +3,5 @@
 *.mod
 *~
 .DS_Store
+# build product; rohsa.slurm rebuilds it when a source is newer
+ROHSA
