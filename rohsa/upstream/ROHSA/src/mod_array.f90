@@ -34,13 +34,20 @@ contains
     ! test is needed. The terms are added in the same order as before.
     ! Columns are independent and run in parallel with OpenMP.
     allocate(extended(dim_y+4, dim_x+4))
-    extended = 0._xp
+    ! Zero fill and interior copy are full-size array passes: OpenMP over columns.
+    !$omp parallel do schedule(static)
+    do j=1, dim_x+4
+       extended(:,j) = 0._xp
+    end do
+    !$omp end parallel do
 
+    !$omp parallel do private(i) schedule(static)
     do j=1, dim_x
        do i=1, dim_y
           extended(2+i,2+j) = image(i,j)
        end do
     end do
+    !$omp end parallel do
 
     do j=1, 2
        do i=1, dim_y
@@ -120,11 +127,13 @@ contains
 
     ! P^T: fold every padded cell back onto the image pixel it copies (same loops as the padding in
     ! convolution_2D_mirror; the corner cells stay zero there and get no gradient).
+    !$omp parallel do private(i) schedule(static)
     do j=1, dim_x
        do i=1, dim_y
           out(i,j) = v(2+i,2+j)
        end do
     end do
+    !$omp end parallel do
     do j=1, 2
        do i=1, dim_y
           out(i,j) = out(i,j) + v(2+i,j)

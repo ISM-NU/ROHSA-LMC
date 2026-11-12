@@ -68,9 +68,18 @@ c====================== The end of dnrm2 ===============================
 c     
       double precision dx(*),dy(*),da
       integer i,incx,incy,ix,iy,m,mp1,n
+      include 'omp_block.h'
 c
       if(n.le.0)return
       if (da .eq. 0.0d0) return
+      if(n.gt.nblk.and.incx.eq.1.and.incy.eq.1) then
+!$omp parallel do schedule(static)
+        do 5 i = 1,n
+          dy(i) = dy(i) + da*dx(i)
+    5   continue
+!$omp end parallel do
+        return
+      endif
       if(incx.eq.1.and.incy.eq.1)go to 20
 c
 c        code for unequal increments or equal increments
@@ -118,20 +127,17 @@ c     jack dongarra, linpack, 3/11/78.
 c
       double precision dx(*),dy(*)
       integer i,incx,incy,ix,iy,m,mp1,n
-!$    integer omp_get_max_threads
+      include 'omp_block.h'
 c
       if(n.le.0)return
-c     OpenMP: long unit-stride vectors are copied in parallel when
-c     several threads are available.
-!$    if(n.gt.100000.and.incx.eq.1.and.incy.eq.1.and.
-!$   +   omp_get_max_threads().gt.1) then
+      if(n.gt.nblk.and.incx.eq.1.and.incy.eq.1) then
 !$omp parallel do schedule(static)
-!$      do 5 i = 1,n
-!$        dy(i) = dx(i)
-!$  5   continue
+        do 5 i = 1,n
+          dy(i) = dx(i)
+    5   continue
 !$omp end parallel do
-!$      return
-!$    endif
+        return
+      endif
       if(incx.eq.1.and.incy.eq.1)go to 20
 c
 c        code for unequal increments or equal increments
@@ -176,31 +182,47 @@ c====================== The end of dcopy ===============================
 
       double precision function ddot(n,dx,incx,dy,incy)
 c
+c     forms the dot product of two vectors. Vectors longer than nblk
+c     (omp_block.h) with unit increments are split into blocks of nblk
+c     elements; the blocks run in parallel with OpenMP and their dot
+c     products are added in block order. Shorter vectors go to ddots,
+c     the original routine.
+c
+      double precision dx(*),dy(*),ddots
+      integer incx,incy,n,ib,nb,i0
+      include 'omp_block.h'
+      double precision part(max(n-1,0)/nblk+1)
+c
+      if(n.le.nblk.or.incx.ne.1.or.incy.ne.1) then
+        ddot = ddots(n,dx,incx,dy,incy)
+        return
+      endif
+      nb = (n-1)/nblk + 1
+!$omp parallel do private(i0) schedule(static)
+      do 10 ib = 1,nb
+        i0 = (ib-1)*nblk
+        part(ib) = ddots(min(nblk,n-i0),dx(i0+1),1,dy(i0+1),1)
+   10 continue
+!$omp end parallel do
+      ddot = 0.0d0
+      do 20 ib = 1,nb
+        ddot = ddot + part(ib)
+   20 continue
+      return
+      end
+
+      double precision function ddots(n,dx,incx,dy,incy)
+c
 c     forms the dot product of two vectors.
 c     uses unrolled loops for increments equal to one.
 c     jack dongarra, linpack, 3/11/78.
 c
       double precision dx(*),dy(*),dtemp
       integer i,incx,incy,ix,iy,m,mp1,n
-!$    integer omp_get_max_threads
 c
-      ddot = 0.0d0
+      ddots = 0.0d0
       dtemp = 0.0d0
       if(n.le.0)return
-c     OpenMP: long unit-stride vectors in parallel when several threads
-c     are available (L-BFGS-B calls this on vectors of all parameters).
-c     With one thread the unrolled serial code below is used, so the
-c     result is the same as in a serial build.
-!$    if(n.gt.100000.and.incx.eq.1.and.incy.eq.1.and.
-!$   +   omp_get_max_threads().gt.1) then
-!$omp parallel do reduction(+:dtemp) schedule(static)
-!$      do 5 i = 1,n
-!$        dtemp = dtemp + dx(i)*dy(i)
-!$  5   continue
-!$omp end parallel do
-!$      ddot = dtemp
-!$      return
-!$    endif
       if(incx.eq.1.and.incy.eq.1)go to 20
 c
 c        code for unequal increments or equal increments
@@ -215,7 +237,7 @@ c
         ix = ix + incx
         iy = iy + incy
    10 continue
-      ddot = dtemp
+      ddots = dtemp
       return
 c
 c        code for both increments equal to 1
@@ -234,7 +256,7 @@ c
         dtemp = dtemp + dx(i)*dy(i) + dx(i + 1)*dy(i + 1) +
      *   dx(i + 2)*dy(i + 2) + dx(i + 3)*dy(i + 3) + dx(i + 4)*dy(i + 4)
    50 continue
-   60 ddot = dtemp
+   60 ddots = dtemp
       return
       end
       
@@ -249,20 +271,17 @@ c     modified 3/93 to return if incx .le. 0.
 c
       double precision da,dx(*)
       integer i,incx,m,mp1,n,nincx
-!$    integer omp_get_max_threads
+      include 'omp_block.h'
 c
       if( n.le.0 .or. incx.le.0 )return
-c     OpenMP: long unit-stride vectors in parallel when several threads
-c     are available.
-!$    if(n.gt.100000.and.incx.eq.1.and.
-!$   +   omp_get_max_threads().gt.1) then
+      if(n.gt.nblk.and.incx.eq.1) then
 !$omp parallel do schedule(static)
-!$      do 5 i = 1,n
-!$        dx(i) = da*dx(i)
-!$  5   continue
+        do 5 i = 1,n
+          dx(i) = da*dx(i)
+    5   continue
 !$omp end parallel do
-!$      return
-!$    endif
+        return
+      endif
       if(incx.eq.1)go to 20
 c
 c        code for increment not equal to 1

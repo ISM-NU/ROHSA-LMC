@@ -14,8 +14,9 @@ CFLAGS= -lm -g -O2 #-lcfitsio -openmp -llapack
 # ROHSA's default is serial. See docs/upstream-prs/rohsa.
 OPENMP ?= 1
 # Optional OpenMP build: make OPENMP=1. Set the number of threads with
-# OMP_NUM_THREADS; with OMP_NUM_THREADS=1 the result is bit-for-bit the
-# same as the default serial build.
+# OMP_NUM_THREADS. Every sum is taken in an order that does not depend on
+# the number of threads (omp_block.h), so the result is bit-for-bit the
+# same at any OMP_NUM_THREADS and in the serial build.
 ifeq ($(OPENMP),1)
 GFLAGS += -fopenmp
 CFLAGS += -fopenmp
@@ -30,10 +31,10 @@ main.o: main.f90
 	$(FC) $(GFLAGS) -c $^
 
 # L-BFGS-B package
-blas.o: blas.f
-	$(FC) $(GFLAGS) -c $^
-lbfgsb.o: lbfgsb.f
-	$(FC) $(GFLAGS) -c $^
+blas.o: blas.f omp_block.h
+	$(FC) $(GFLAGS) -c $<
+lbfgsb.o: lbfgsb.f omp_block.h
+	$(FC) $(GFLAGS) -c $<
 linpack.o: linpack.f
 	$(FC) $(GFLAGS) -c $^
 timer.o: timer.f

@@ -34,7 +34,7 @@ module purge
 module load GCC
 rohsa_src="$ROHSA_REPO/rohsa/upstream/ROHSA/src"
 flock "$rohsa_src/.build.lock" bash -c '
-    if [ ! -x "$1/ROHSA" ] || [ -n "$(find "$1" -maxdepth 1 \( -name "*.f" -o -name "*.f90" -o -name Makefile \) -newer "$1/ROHSA")" ]; then
+    if [ ! -x "$1/ROHSA" ] || [ -n "$(find "$1" -maxdepth 1 \( -name "*.f" -o -name "*.f90" -o -name "*.h" -o -name Makefile \) -newer "$1/ROHSA")" ]; then
         make -C "$1" clean all
     fi' _ "$rohsa_src"
 
