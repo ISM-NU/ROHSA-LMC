@@ -81,6 +81,11 @@ contains
     !     end of loop do while       
     end do
 
+    ! How this fit ended. Without this line nothing is printed when maxiter stops the fit (setulb is
+    ! not called again), so a budget stop cannot be told from convergence or a line-search failure.
+    write(*,'(a,i0,a,i0,a,i0,a,es14.6,a,es10.3,2a)') " lbfgsb_stop n=", n, " iter=", isave(30), " evals=", isave(34), &
+         " f=", f, " projg=", dsave(13), " task=", trim(task)
+
     deallocate(nbd, g)
     deallocate(iwa)
     deallocate(wa)
@@ -164,6 +169,11 @@ contains
        endif
     !     end of loop do while       
     end do
+
+    ! How this fit ended. Without this line nothing is printed when maxiter stops the fit (setulb is
+    ! not called again), so a budget stop cannot be told from convergence or a line-search failure.
+    write(*,'(a,i0,a,i0,a,i0,a,es14.6,a,es10.3,2a)') " lbfgsb_stop n=", n, " iter=", isave(30), " evals=", isave(34), &
+         " f=", f, " projg=", dsave(13), " task=", trim(task)
 
     deallocate(nbd, g)
     deallocate(iwa)

@@ -23,7 +23,7 @@ endif
 
 OUT=ROHSA
 
-all: blas.o lbfgsb.o linpack.o timer.o mod_constants.o mod_convert.o mod_inout.o mod_array.o mod_optimize.o mod_optimize_lym.o mod_minimize.o mod_functions.o mod_start.o mod_rohsa.o main.o
+all: blas.o lbfgsb.o linpack.o timer.o mod_constants.o mod_convert.o mod_array.o mod_inout.o mod_optimize.o mod_optimize_lym.o mod_minimize.o mod_functions.o mod_start.o mod_rohsa.o main.o
 	$(FC) $^ $(CFLAGS) -o $(OUT)
 
 main.o: main.f90

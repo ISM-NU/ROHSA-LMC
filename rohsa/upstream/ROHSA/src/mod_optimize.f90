@@ -197,9 +197,9 @@ contains
        call convolution_2D_mirror(image_mu, conv_mu, dim_y, dim_x, kernel, 3)
        call convolution_2D_mirror(image_sig, conv_sig, dim_y, dim_x, kernel, 3)
        
-       call convolution_2D_mirror(conv_amp, conv_conv_amp, dim_y, dim_x, kernel, 3)
-       call convolution_2D_mirror(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
-       call convolution_2D_mirror(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
+       call regul_gradient(conv_amp, conv_conv_amp, dim_y, dim_x, kernel, 3)
+       call regul_gradient(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
+       call regul_gradient(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
        
        ! Regularisation terms of this Gaussian are summed in fr and gb and
        ! added to f and g once, so the loop can run in parallel with the
@@ -370,9 +370,9 @@ contains
        call convolution_2D_mirror(image_mu, conv_mu, dim_y, dim_x, kernel, 3)
        call convolution_2D_mirror(image_sig, conv_sig, dim_y, dim_x, kernel, 3)
 
-       call convolution_2D_mirror(conv_amp, conv_conv_amp, dim_y, dim_x, kernel, 3)
-       call convolution_2D_mirror(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
-       call convolution_2D_mirror(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
+       call regul_gradient(conv_amp, conv_conv_amp, dim_y, dim_x, kernel, 3)
+       call regul_gradient(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
+       call regul_gradient(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
 
        do j=1, dim_x
           do i=1, dim_y

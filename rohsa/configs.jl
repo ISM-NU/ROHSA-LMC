@@ -38,6 +38,7 @@ const ROHSA_CONFIG_KEYS = Dict(
     "ub_sig_init" => "ub-sig-init",
     "lb_sig" => "lb-sig",
     "ub_sig" => "ub-sig",
+    "regul_grad_adjoint" => "regul-grad-adjoint",
     "init_option" => "init-option",
     "maxiter_init" => "maxiter-init",
     "maxiter" => "maxiter",
@@ -95,6 +96,10 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     # it turns zero-mean noise into a positive pedestal that ROHSA fits with
     # broad components. NaNs are always written as 0.
     "clip-negative" => "true",
+    # Exact gradient of ROHSA's smoothing term at map edges (mod_array.f90 regul_grad_adjoint). Off by
+    # default so existing runs stay reproducible; the original code is wrong in the two outer rows and
+    # columns of every level. Emitted only when true, so older ROHSA binaries still read the namelist.
+    "regul-grad-adjoint" => "false",
     "auto-config-enabled" => "false",
     "auto-config-profile" => "physical_decomposition",
     "auto-config-max-candidates" => "24",
@@ -196,6 +201,9 @@ function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_pa
         println(io, "    ,iprint = $(parse(Int, opts["iprint"]))")
         println(io, "    ,iprint_init = $(parse(Int, opts["iprint-init"]))")
         println(io, "    ,save_grid = $(fortran_bool(opts["save-grid"]))")
+        if parse_bool(get(opts, "regul-grad-adjoint", "false"))
+            println(io, "    ,regul_grad_adjoint = .true.")
+        end
         println(io, "    /")
     end
     return path

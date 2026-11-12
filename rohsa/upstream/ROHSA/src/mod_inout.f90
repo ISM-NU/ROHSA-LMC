@@ -3,6 +3,7 @@ module mod_inout
   !! This module read the input user parameters (parameters.txt file / data / noise if true)
   use mod_constants
   use mod_convert
+  use mod_array, only: regul_grad_adjoint
   
   implicit none
   
@@ -48,7 +49,7 @@ contains
     namelist /user_parameters/ filename, fileout, timeout, filename_noise, filename_init_spec, n_gauss, lambda_amp, &
          lambda_mu, lambda_sig, lambda_var_amp, lambda_var_mu, lambda_var_sig, lambda_lym_sig, amp_fact_init, &
          sig_init, lb_sig_init, ub_sig_init, lb_sig, ub_sig, init_option, maxiter_init, maxiter, m, noise, regul, &
-         descent, lstd, ustd, iprint, iprint_init, save_grid, lym, init_grid, fileinit, init_spec
+         descent, lstd, ustd, iprint, iprint_init, save_grid, lym, init_grid, fileinit, init_spec, regul_grad_adjoint
     
     open(unit=11, file=filename_parameters, status="old", iostat=ios)
     if (ios /= 0) stop "opening file error"
