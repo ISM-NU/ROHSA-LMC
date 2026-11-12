@@ -319,6 +319,27 @@ function write_rms_map(rms_path::AbstractString, nx::Int, ny::Int, sigma::Real)
     return rms_path
 end
 
+# Per-pixel version: sigma[x, y] (Julia order). NaN, Inf or <= 0 become 0, which ROHSA treats as "no data term"
+# for that pixel at the full-resolution level (mod_optimize.f90: std_map > 0 test).
+function write_rms_map(rms_path::AbstractString, sigma::AbstractMatrix{<:Real})
+    nx, ny = size(sigma)
+    open(rms_path, "w") do io
+        println(io, "$(ny)\t$(nx)")
+        for y in 1:ny, x in 1:nx
+            v = sigma[x, y]
+            @printf(io, "%d\t%d\t%.16f\n", y - 1, x - 1, (isfinite(v) && v > 0) ? Float64(v) : 0.0)
+        end
+    end
+    return rms_path
+end
+
+function read_noise_map(path::AbstractString, region)
+    m = Float64.(Astronomy.read_fits_image(path))
+    size(m) == (region.nx, region.ny) ||
+        throw(ArgumentError("noise_map $path is $(size(m)), the crop is $((region.nx, region.ny))"))
+    return m
+end
+
 # NaN/Inf become 0 (ROHSA needs finite values). Negative voxels become 0 only when
 # clip_negative: upstream ROHSA does not require it, and clipping zero-mean noise
 # leaves a positive pedestal (mean ~0.4 sigma per channel) that ROHSA fits with
@@ -329,7 +350,8 @@ function write_region_products(input::AbstractString, header, region::InputRegio
                                retain_cube::Bool=true, write_region_fits::Bool=true,
                                fits_extension::AbstractString=".fits",
                                spectral_kernel::AbstractString="none",
-                               clip_negative::Bool=true)
+                               clip_negative::Bool=true,
+                               noise_map::AbstractString="")
     mkpath(region_dir)
     kernel = spectral_kernel_weights(spectral_kernel)
     kernel_sigma_chan = spectral_kernel_sigma(kernel)
@@ -364,6 +386,13 @@ function write_region_products(input::AbstractString, header, region::InputRegio
     end
     isfinite(sigma) || (sigma = 1.0)
     rms_path = joinpath(region_dir, "rms_map.dat")
-    write_rms_map(rms_path, region.nx, region.ny, sigma)
+    if isempty(noise_map)
+        write_rms_map(rms_path, region.nx, region.ny, sigma)
+    else
+        m = read_noise_map(noise_map, region)
+        write_rms_map(rms_path, m)
+        good = filter(v -> isfinite(v) && v > 0, m)
+        sigma = isempty(good) ? sigma : median(good)  # reported level; ROHSA uses the map
+    end
     return (; fits_path, rohsa_input_path, rms_path, sigma, header=region_header, cube, kernel_sigma_chan)
 end

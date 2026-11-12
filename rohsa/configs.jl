@@ -25,6 +25,7 @@ const ROHSA_CONFIG_KEYS = Dict(
     "fits_extension" => "fits-extension",
     "spectral_kernel" => "spectral-kernel",
     "clip_negative" => "clip-negative",
+    "noise_map" => "noise-map",
     "n_gauss" => "n-gauss",
     "lambda_amp" => "lambda-amp",
     "lambda_mu" => "lambda-mu",
@@ -100,6 +101,10 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     # default so existing runs stay reproducible; the original code is wrong in the two outer rows and
     # columns of every level. Emitted only when true, so older ROHSA binaries still read the namelist.
     "regul-grad-adjoint" => "false",
+    # Per-pixel noise for ROHSA (2D FITS, crop-sized, Julia x-y order). Empty = one level from the cube
+    # (robust_channel_difference_noise). Pixels with NaN or <= 0 are written as 0, which ROHSA skips in the data
+    # term at the full-resolution level (their parameters follow the smoothing term): used for held-out blocks.
+    "noise-map" => "",
     "auto-config-enabled" => "false",
     "auto-config-profile" => "physical_decomposition",
     "auto-config-max-candidates" => "24",
