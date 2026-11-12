@@ -21,7 +21,7 @@ git submodule foreach --recursive 'ln -sfn "$toplevel/data" data'   # same data 
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
-`deps/VGT` is a git submodule (ISM-NU/VGT-Denis, branch `split/vgt-method`).
+`deps/VGT` is a git submodule (ISM-NU/VGT.jl).
 It provides the Julia package `Astronomy` (FITS I/O, noise estimates, VGT).
 Update the pin with `git -C deps/VGT pull`, then commit the new pointer.
 
@@ -59,7 +59,7 @@ ROHSA workflow details: `rohsa/README.md`.
 
 ## Related repos
 
-- [VGT-Denis](https://github.com/ISM-NU/VGT-Denis) - the VGT method (`Astronomy` package). Pinned here as `deps/VGT`.
+- [VGT.jl](https://github.com/ISM-NU/VGT.jl) - the VGT method (`Astronomy` package). Pinned here as `deps/VGT`.
 - [LMC-foreground](https://github.com/ISM-NU/LMC-foreground) - Milky Way foreground, Planck and starlight comparisons. Experiments.
 - [LMC-cold-gas](https://github.com/ISM-NU/LMC-cold-gas) - ROHSA runs and cold H I work. Pins this repo.
 - [LMC-shells](https://github.com/ISM-NU/LMC-shells) - optical supergiant-shell research. Experiments.

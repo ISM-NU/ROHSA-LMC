@@ -20,7 +20,7 @@ experiments live in LMC-cold-gas; method examples are in `configs/rohsa/`.
 ## Access
 
 Connect to the NU GlobalProtect VPN when off campus, then
-`ssh YOUR_USERNAME@<irgetas login node>`. Our copy of the repository is
+`ssh YOUR_USERNAME@<irgetas login node>` (address in the NU HPC user guide). Our copy of the repository is
 `/shared/home/YOUR_USERNAME/rohsa-lmc`. It is not a git checkout: sync tracked
 files from a laptop checkout with
 

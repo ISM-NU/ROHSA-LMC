@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, cite it and the ROHSA paper (Marchal et al. 2019)."
+title: "ROHSA-LMC: ROHSA Gaussian decomposition, velocity layers and disk de-rotation for LMC H I cubes"
+type: software
+authors:
+  - family-names: Andreyev
+    given-names: Denis
+    affiliation: Nazarbayev University
+repository-code: "https://github.com/ISM-NU/ROHSA-LMC"
+license: MIT
+references:
+  - type: article
+    title: "ROHSA: Regularized Optimization for Hyper-Spectral Analysis. Application to phase separation of 21 cm data"
+    authors:
+      - family-names: Marchal
+        given-names: Antoine
+    journal: "Astronomy & Astrophysics"
+    volume: 626
+    start: A101
+    year: 2019
+    doi: "10.1051/0004-6361/201935335"

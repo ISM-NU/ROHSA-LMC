@@ -10,7 +10,7 @@ Read `README.md` first, then `rohsa/README.md`.
 
 - Belongs here: code that prepares, runs or post-processes a ROHSA decomposition, and its tests, validation notes and cluster scripts.
 - Does not belong here: experiments (scans, null and injection tests, cold-gas maps, figures, comparisons with stars or Planck). They go to `LMC-cold-gas` (ROHSA experiments) or `LMC-foreground` (foreground work).
-- VGT itself is not changed here. It comes from `deps/VGT` (ISM-NU/VGT-Denis). Do not edit anything under `deps/`.
+- VGT itself is not changed here. It comes from `deps/VGT` (ISM-NU/VGT.jl). Do not edit anything under `deps/`.
 
 ## Language
 
