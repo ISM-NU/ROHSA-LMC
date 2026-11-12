@@ -1,4 +1,4 @@
-using Astronomy
+using VGT
 using RohsaLMC
 using Test
 

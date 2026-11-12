@@ -1,6 +1,6 @@
 using FITSIO
 using TOML
-using Astronomy
+using VGT
 using RohsaLMC
 include(joinpath(@__DIR__, "..", "..", "rohsa", "memory.jl"))
 include(joinpath(@__DIR__, "..", "..", "rohsa", "configs.jl"))

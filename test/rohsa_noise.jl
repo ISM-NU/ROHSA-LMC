@@ -2,7 +2,7 @@ using Test
 using Random
 
 module RohsaInputsTest
-    using Astronomy
+    using VGT
     using FITSIO
     using Printf
     using Statistics

@@ -4,7 +4,7 @@ quickactivate(@__DIR__, "RohsaLMC")
 
 using Statistics
 using TOML
-using Astronomy
+using VGT
 using RohsaLMC
 # De-rotate cubes by the local disk velocity (src/derotate.jl) and write
 # a VGT config for each, copied from an existing config with only the input and

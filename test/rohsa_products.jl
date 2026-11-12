@@ -1,4 +1,4 @@
-using Astronomy
+using VGT
 using RohsaLMC
 using FITSIO
 using Test
@@ -21,7 +21,7 @@ using Test
         ],
         fill("", 16),
     )
-    velocities, dv = Astronomy.velocity_axis_kms(header, 3)
+    velocities, dv = VGT.velocity_axis_kms(header, 3)
     # CRPIX3 = 1, CRVAL3 = 0: the first channel is at 0 km/s (FITS convention).
     @test velocities == [0.0, 1.0, 2.0]
     @test dv == 1.0
@@ -138,7 +138,7 @@ using Test
             )
             @test endswith(compressed.model_path, ".fits.fz")
             @test isfile(compressed.model_path)
-            @test Astronomy.read_fits_image(compressed.model_path) == compressed.model
+            @test VGT.read_fits_image(compressed.model_path) == compressed.model
         end
     end
 end
@@ -155,7 +155,7 @@ end
         # End to end: ROHSA's mu is 1-based, so mu = 2.0 in the file is the second
         # channel, at 1 km/s on an axis with CRVAL3 = 0, CRPIX3 = 1, CDELT3 = 1 km/s.
         header = FITSHeader(["CRPIX3", "CRVAL3", "CDELT3", "CUNIT3"], [1.0, 0.0, 1000.0, "m/s"], fill("", 4))
-        velocities, dv = Astronomy.velocity_axis_kms(header, 4)
+        velocities, dv = VGT.velocity_axis_kms(header, 4)
         components = RohsaLMC.reconstruct_rohsa_components(params, 4)
         rows = RohsaLMC.rohsa_component_rows("r", 1, params, components, velocities, dv)
         @test rows[1]["weighted_mu_kms"] ≈ 1.0

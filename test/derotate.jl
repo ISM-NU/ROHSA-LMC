@@ -1,4 +1,4 @@
-using Astronomy
+using VGT
 using RohsaLMC
 using Statistics
 using Test
@@ -62,5 +62,5 @@ using Test
         @test hd[key] == h[key]
     end
     @test hd["CRVAL3"] == -158 * 1000.0
-    @test length(Astronomy.WCS.from_header(Astronomy._wcs_header_string(hd))) == 1
+    @test length(VGT.WCS.from_header(VGT._wcs_header_string(hd))) == 1
 end

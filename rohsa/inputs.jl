@@ -334,7 +334,7 @@ function write_rms_map(rms_path::AbstractString, sigma::AbstractMatrix{<:Real})
 end
 
 function read_noise_map(path::AbstractString, region)
-    m = Float64.(Astronomy.read_fits_image(path))
+    m = Float64.(VGT.read_fits_image(path))
     size(m) == (region.nx, region.ny) ||
         throw(ArgumentError("noise_map $path is $(size(m)), the crop is $((region.nx, region.ny))"))
     return m
@@ -363,7 +363,7 @@ function write_region_products(input::AbstractString, header, region::InputRegio
         region_header["SPKSIGCH"] = kernel_sigma_chan
     end
     clip_negative || (region_header["CLIPNEG"] = false)
-    fits_ext = Astronomy.normalize_fits_extension(fits_extension)
+    fits_ext = VGT.normalize_fits_extension(fits_extension)
     fits_path = joinpath(region_dir, string(region.label, fits_ext))
     # Deriving products or visuals needs the cube later; preflight-style runs can
     # stream directly to the ROHSA text format to avoid a second full cube in memory.
@@ -376,7 +376,7 @@ function write_region_products(input::AbstractString, header, region::InputRegio
             sigma *= spectral_kernel_noise_factor(kernel)
         end
         cube .= clean_voxel.(cube, clip_negative)
-        write_region_fits && Astronomy.write_fits(fits_path, cube; header=region_header)
+        write_region_fits && VGT.write_fits(fits_path, cube; header=region_header)
         rohsa_input_path = write_cube_bin(joinpath(region_dir, string(region.label, ".bin")), cube)
     else
         length(kernel) == 1 ||

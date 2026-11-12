@@ -22,7 +22,7 @@ julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
 `deps/VGT` is a git submodule (ISM-NU/VGT.jl).
-It provides the Julia package `Astronomy` (FITS I/O, noise estimates, VGT).
+It provides the Julia package `VGT` (FITS I/O, noise estimates, VGT).
 Update the pin with `git -C deps/VGT pull`, then commit the new pointer.
 
 The Fortran binary is built on first use by the runner (needs `gfortran`). On
@@ -60,7 +60,7 @@ ROHSA workflow details: `rohsa/README.md`.
 
 ## Related repos
 
-- [VGT.jl](https://github.com/ISM-NU/VGT.jl) - the VGT method (`Astronomy` package). Pinned here as `deps/VGT`.
+- [VGT.jl](https://github.com/ISM-NU/VGT.jl) - the VGT method (`VGT` package). Pinned here as `deps/VGT`.
 - [LMC-foreground](https://github.com/ISM-NU/LMC-foreground) - Milky Way foreground, Planck and starlight comparisons. Experiments.
 - [LMC-cold-gas](https://github.com/ISM-NU/LMC-cold-gas) - ROHSA runs and cold H I work. Pins this repo.
 - [LMC-shells](https://github.com/ISM-NU/LMC-shells) - optical supergiant-shell research. Experiments.

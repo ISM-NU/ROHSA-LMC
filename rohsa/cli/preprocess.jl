@@ -8,7 +8,7 @@ using FITSIO
 using Printf
 using TOML
 using Statistics
-using Astronomy
+using VGT
 using RohsaLMC
 const DEFAULT_CONFIG_PATH = normpath(joinpath(@__DIR__, "..", "..", "configs", "rohsa", "full_cube.toml"))
 

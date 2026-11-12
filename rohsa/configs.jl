@@ -158,7 +158,7 @@ function load_rohsa_config(path::AbstractString)
     for (key, value) in OPTIONAL_ROHSA_OPTIONS
         get!(opts, key, value)
     end
-    opts["fits-extension"] = Astronomy.normalize_fits_extension(opts["fits-extension"])
+    opts["fits-extension"] = VGT.normalize_fits_extension(opts["fits-extension"])
     opts["config-path"] = abspath(path)
     return opts
 end

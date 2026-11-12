@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "61a40c917cf83c0272a32066efc3ee625a352958"
+project_hash = "9de262ba0535eeee9bc5d560425993c8d8bd2979"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -124,12 +124,6 @@ version = "1.1.0"
 
     [deps.AstroFITS.weakdeps]
     DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
-
-[[deps.Astronomy]]
-deps = ["AstroFITS", "BenchmarkTools", "CairoMakie", "Dates", "DrWatson", "FFTW", "FITSIO", "Images", "JLD2", "LinearAlgebra", "LsqFit", "Mmap", "Printf", "Profile", "Random", "SHA", "Statistics", "StatsBase", "TOML", "WCS"]
-path = "deps/VGT"
-uuid = "de575b2d-bb0d-4782-93cb-7f87631ef28a"
-version = "0.1.0"
 
 [[deps.Automa]]
 deps = ["PrecompileTools", "SIMD", "TranscodingStreams"]
@@ -1694,7 +1688,7 @@ uuid = "f50d1b31-88e8-58de-be2c-1cc44531875f"
 version = "0.5.1+0"
 
 [[deps.RohsaLMC]]
-deps = ["Astronomy", "CairoMakie", "Dates", "DrWatson", "FFTW", "FITSIO", "Images", "LinearAlgebra", "Printf", "Random", "Statistics", "TOML", "Test"]
+deps = ["CairoMakie", "Dates", "DrWatson", "FFTW", "FITSIO", "Images", "LinearAlgebra", "Printf", "Random", "Statistics", "TOML", "Test", "VGT"]
 path = "."
 uuid = "647062e6-a65d-4c3b-a4b9-26d5ac3c6ae1"
 version = "0.1.0"
@@ -2072,6 +2066,12 @@ version = "1.28.0"
     Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
     NaNMath = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
     Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+
+[[deps.VGT]]
+deps = ["AstroFITS", "BenchmarkTools", "CairoMakie", "Dates", "DrWatson", "FFTW", "FITSIO", "Images", "JLD2", "LinearAlgebra", "LsqFit", "Mmap", "Printf", "Profile", "Random", "SHA", "Statistics", "StatsBase", "TOML", "WCS"]
+path = "deps/VGT"
+uuid = "de575b2d-bb0d-4782-93cb-7f87631ef28a"
+version = "0.1.0"
 
 [[deps.VectorizationBase]]
 deps = ["ArrayInterface", "CPUSummary", "HostCPUFeatures", "IfElse", "LayoutPointers", "Libdl", "LinearAlgebra", "SIMDTypes", "Static", "StaticArrayInterface"]

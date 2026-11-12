@@ -3,7 +3,7 @@ Base.exit_on_sigint(false)
 quickactivate(@__DIR__, "RohsaLMC")
 
 using TOML
-using Astronomy
+using VGT
 using RohsaLMC
 # Build velocity-layer cubes (low / main / high) and the full model cube from one
 # ROHSA region directory, plus a VGT config per cube and one for the data crop

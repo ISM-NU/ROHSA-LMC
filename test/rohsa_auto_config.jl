@@ -1,7 +1,7 @@
 using Printf
 using Statistics
 using Test
-using Astronomy
+using VGT
 using RohsaLMC
 using TOML
 
