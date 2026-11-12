@@ -6,7 +6,7 @@ using Statistics
 using TOML
 using Astronomy
 using RohsaLMC
-# De-rotate cubes by the local disk velocity (src/science/derotate.jl) and write
+# De-rotate cubes by the local disk velocity (src/derotate.jl) and write
 # a VGT config for each, copied from an existing config with only the input and
 # output paths changed, so the de-rotated run differs from the original in
 # nothing but the de-rotation.
