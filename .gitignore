@@ -33,9 +33,10 @@ __pycache__/
 !Manifest.toml
 
 .codex
-CLAUDE.md
-AGENTS.md
-.claude
+# shared agent files are tracked; personal Claude settings stay local
+.claude/*
+!.claude/skills/
+!.claude/settings.json
 inputs/*
 
 # shared data folder (symlink to ../lmc-data)

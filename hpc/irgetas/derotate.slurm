@@ -14,6 +14,7 @@
 
 set -euo pipefail
 : "${ROHSA_REPO:?}" "${REFERENCE:?}" "${OUT_DIR:?}" "${CONFIG_DIR:?}" "${CUBES:?}"
+REFERENCE=$(realpath -m "$REFERENCE"); OUT_DIR=$(realpath -m "$OUT_DIR"); CONFIG_DIR=$(realpath -m "$CONFIG_DIR")  # relative to the submit dir; give CUBES paths absolute
 cd "$ROHSA_REPO"
 mkdir -p validation_output/vgt_irgetas_logs
 export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$ROHSA_REPO/.julia-irgetas}"

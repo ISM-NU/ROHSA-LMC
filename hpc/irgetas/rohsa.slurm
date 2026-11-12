@@ -13,7 +13,8 @@ set -euo pipefail
 : "${ROHSA_REPO:?submit_rohsa.sh must set ROHSA_REPO}"
 : "${ROHSA_CONFIG:?submit_rohsa.sh must set ROHSA_CONFIG}"
 
-cd "$ROHSA_REPO"
+run_dir="${RUN_DIR:-$ROHSA_REPO}"  # config paths resolve from here
+cd "$run_dir"
 mkdir -p validation_output/rohsa_irgetas_logs
 export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$ROHSA_REPO/.julia-irgetas}"
 
@@ -21,6 +22,7 @@ echo "job_id=$SLURM_JOB_ID"
 echo "host=$(hostname)"
 echo "partition=$SLURM_JOB_PARTITION"
 echo "config=$ROHSA_CONFIG"
+echo "run_dir=$run_dir"
 echo "julia_depot=$JULIA_DEPOT_PATH"
 date --iso-8601=seconds
 
@@ -30,7 +32,7 @@ date --iso-8601=seconds
 # After copying a binary from another machine, delete it so it is rebuilt here.
 module purge
 module load GCC
-rohsa_src=rohsa/upstream/ROHSA/src
+rohsa_src="$ROHSA_REPO/rohsa/upstream/ROHSA/src"
 flock "$rohsa_src/.build.lock" bash -c '
     if [ ! -x "$1/ROHSA" ] || [ -n "$(find "$1" -maxdepth 1 \( -name "*.f" -o -name "*.f90" -o -name Makefile \) -newer "$1/ROHSA")" ]; then
         make -C "$1" clean all
@@ -51,6 +53,6 @@ ulimit -s unlimited
 export OMP_STACKSIZE=256M
 echo "omp_threads=$OMP_NUM_THREADS"
 
-srun --ntasks=1 julia --project=. rohsa/cli/preprocess.jl --config "$ROHSA_CONFIG"
+srun --ntasks=1 julia --project="$ROHSA_REPO" "$ROHSA_REPO/rohsa/cli/preprocess.jl" --config "$ROHSA_CONFIG"
 
 date --iso-8601=seconds

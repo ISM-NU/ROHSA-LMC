@@ -13,6 +13,7 @@
 
 set -euo pipefail
 : "${ROHSA_REPO:?}" "${REGION_DIR:?}" "${N_GAUSS:?}" "${LAYER_DIR:?}"
+REGION_DIR=$(realpath -m "$REGION_DIR"); LAYER_DIR=$(realpath -m "$LAYER_DIR")  # relative to the submit dir
 cd "$ROHSA_REPO"
 mkdir -p validation_output/vgt_irgetas_logs
 export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$ROHSA_REPO/.julia-irgetas}"

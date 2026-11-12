@@ -39,11 +39,15 @@ cpus=${CPUS:-$cpus}
 memory=${MEM:-$memory}
 time_limit=${TIME:-$time_limit}
 
+# Paths inside the config (input, output_dir) resolve from the directory you
+# submit from, so an experiment repo can keep its configs and data and call
+# this script through its deps/ROHSA-LMC submodule.
 repo=$(cd "$(dirname "$0")/../.." && pwd)
-cd "$repo"
+run_dir=$PWD
+config=$(realpath "$config")
 mkdir -p validation_output/rohsa_irgetas_logs
 
-julia --project=. hpc/irgetas/rohsa_preflight.jl "$config"
+julia --project="$repo" "$repo/hpc/irgetas/rohsa_preflight.jl" "$config"
 
 name=$(basename "$config" .toml)
 echo "submitting $name: crop=$crop N=$n_gauss cpus=$cpus mem=$memory time=$time_limit"
@@ -53,5 +57,5 @@ sbatch \
     --cpus-per-task="$cpus" \
     --mem="$memory" \
     --time="$time_limit" \
-    --export=ALL,ROHSA_REPO="$repo",ROHSA_CONFIG="$config" \
-    hpc/irgetas/rohsa.slurm
+    --export=ALL,ROHSA_REPO="$repo",ROHSA_CONFIG="$config",RUN_DIR="$run_dir" \
+    "$repo/hpc/irgetas/rohsa.slurm"
