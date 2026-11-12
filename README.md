@@ -11,10 +11,12 @@ Experiments that use it (scans, nulls, injections, cold-gas maps) live in
 
 ## Setup
 
+Usually this repository sits in the LMC workspace folder (`~/Projects/LMC`), whose `setup.sh` clones all related repositories next to each other and links the shared data; its AGENTS.md has the rules that span repositories.
+
 ```bash
 git clone --recursive git@github.com:ISM-NU/ROHSA-LMC.git
 cd ROHSA-LMC
-ln -s ../lmc-data data          # shared data folder ~/Projects/lmc-data, ignored by git
+ln -s ../lmc-data data          # shared data folder ~/Projects/LMC/lmc-data, ignored by git
 git submodule foreach --recursive 'ln -sfn "$toplevel/data" data'   # same data inside submodules
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```

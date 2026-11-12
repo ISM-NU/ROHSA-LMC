@@ -9,7 +9,7 @@ times. The expressions are otherwise unchanged. `hpc/irgetas/rohsa.slurm`
 requests 16 CPUs and sets `OMP_NUM_THREADS` from Slurm; without it OpenMP would
 start one thread per node core inside a 1-CPU allocation.
 
-Test: 30 Dor 512x512x159 window (`configs/rohsa/dor30_512_n6_defaultnoise.toml` inputs,
+Test: 30 Dor 512x512x159 window (`configs/rohsa/dor30_512_n6_defaultnoise.toml (in ISM-NU/LMC-cold-gas)` inputs,
 noise=false, N=6, lambda=100), original binary vs patched binary, same
 parameter file.
 

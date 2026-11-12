@@ -103,7 +103,7 @@ Run VGT on each cube with the VGT repo's script, from the VGT checkout
 (`deps/VGT`), whose environment variable is `VGT_REPO`:
 
 ```bash
-sbatch --job-name=vgt_<cube> --export=ALL,VGT_REPO=$PWD,VGT_CONFIG=<LAYER_DIR>/vgt_<cube>.toml \
+sbatch --job-name=vgt_<cube> --export=ALL,VGT_REPO=$PWD/deps/VGT,VGT_CONFIG=<LAYER_DIR>/vgt_<cube>.toml \
   deps/VGT/hpc/irgetas/vgt.slurm
 ```
 

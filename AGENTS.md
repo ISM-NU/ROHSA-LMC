@@ -26,7 +26,7 @@ Use Julia where performance needs it. Simple scripts can be Python.
 
 ## Data and Slurm
 
-- Data live in `~/Projects/lmc-data`. `data` in the repo is a symlink made with `ln -s ../lmc-data data`. It is ignored by git. Never commit cubes or run outputs.
+- Data live in `~/Projects/LMC/lmc-data`. `data` in the repo is a symlink made with `ln -s ../lmc-data data`. It is ignored by git. Never commit cubes or run outputs.
 - Heavy computation runs on Irgetas via Slurm, not on laptops. Seconds-long scripts and tests may run locally.
 - The repo root on the cluster is `ROHSA_REPO`. Runbook: `hpc/irgetas/README.md`. Read it before submitting.
 - Do not remove run outputs unless the run finished successfully or the user asks.
