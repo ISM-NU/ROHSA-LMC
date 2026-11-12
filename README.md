@@ -63,3 +63,10 @@ ROHSA workflow details: `rohsa/README.md`.
 - [LMC-foreground](https://github.com/ISM-NU/LMC-foreground) - Milky Way foreground, Planck and starlight comparisons. Experiments.
 - [LMC-cold-gas](https://github.com/ISM-NU/LMC-cold-gas) - ROHSA runs and cold H I work. Pins this repo.
 - [LMC-shells](https://github.com/ISM-NU/LMC-shells) - optical supergiant-shell research. Experiments.
+
+## License
+
+MIT (`LICENSE`) for the code in this repository outside `rohsa/upstream/ROHSA`.
+The vendored ROHSA source is Copyright (c) 2019 Antoine Marchal, MIT license
+(`rohsa/upstream/ROHSA/LICENSE`); its bundled L-BFGS-B keeps its BSD-3-Clause
+notice. Work using ROHSA should cite Marchal et al. 2019, A&A 626, A101.
