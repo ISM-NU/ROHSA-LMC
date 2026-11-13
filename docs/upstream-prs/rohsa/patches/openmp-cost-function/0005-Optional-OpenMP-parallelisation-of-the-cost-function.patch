@@ -1,33 +1,37 @@
-From bd4815acf08905af6202c9f9ba2b2f2b448ba6b9 Mon Sep 17 00:00:00 2001
+From 734a1d0e8b97853c7e6a964e877e154dc36e1c39 Mon Sep 17 00:00:00 2001
 From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
-Date: Sat, 17 Oct 2026 19:51:37 +0500
+Date: Fri, 13 Nov 2026 04:33:20 +0500
 Subject: [PATCH 5/5] Optional OpenMP parallelisation of the cost function
 
 `make OPENMP=1` builds ROHSA with OpenMP; the default build is unchanged
 (the directives are comments to a compiler without -fopenmp).
 
-Parallel loops, all over independent sky columns:
-- the model/residual/objective loop of f_g_cube_fast (one spectrum per
-  pixel, objective as a reduction);
-- the gradient/regularisation loop for each Gaussian (each pixel writes
-  only its own derivatives; the per-Gaussian sums are reductions);
-- the zeroing of deriv;
-- convolution_2D_mirror.
+f_g_cube_fast now works one spectrum at a time (new routine data_term):
+each Gaussian is evaluated once per channel and used for the model, the
+residual and the three derivatives, so no residual cube is stored. The
+parameters are read from beta and the gradient is written to g in place;
+unravel_3D and ravel_3D only copied the same layout. The spectra run in
+parallel. Each spectrum's share of f is stored, and the shares are added
+in the serial order. The regularisation terms of f and of the b_params
+gradient are summed per sky column and then over the columns in order.
+The zero fill, the interior copy and the convolution loop of
+convolution_2D_mirror run over columns in parallel.
 
-No large array is copied per thread: the private variables are scalars
-and one spectrum-sized model array. With OMP_NUM_THREADS=1 the result is
-bit-for-bit the same as the serial build; with more threads the sums are
-grouped differently and results differ only by rounding.
-
+Every sum has a fixed order, so an OpenMP build gives bit-for-bit the
+same result as the serial build at any OMP_NUM_THREADS. Compared with the
+serial code before this commit the result changes by rounding only: the
+derivatives now use the exp() values of the model (gfortran vectorises
+the model loop, and the vector exp() can differ from the scalar one in
+the last bit), and the regularisation sum is grouped by column.
 ---
- README.md            | 12 ++++++++++++
- src/Makefile         |  8 ++++++++
- src/mod_array.f90    |  3 +++
- src/mod_optimize.f90 | 11 ++++++++++-
- 4 files changed, 33 insertions(+), 1 deletion(-)
+ README.md            |  12 +++
+ src/Makefile         |   8 ++
+ src/mod_array.f90    |  12 ++-
+ src/mod_optimize.f90 | 184 +++++++++++++++++++++++++------------------
+ 4 files changed, 139 insertions(+), 77 deletions(-)
 
 diff --git a/README.md b/README.md
-index 852ace9..b28d64a 100644
+index 852ace9..ec854e1 100644
 --- a/README.md
 +++ b/README.md
 @@ -19,6 +19,18 @@ A google colab notebook is available [here!](https://github.com/antoinemarchal/R
@@ -44,13 +48,13 @@ index 852ace9..b28d64a 100644
 +OMP_NUM_THREADS=16 ./ROHSA parameters.txt
 +```
 +
-+Without `OPENMP=1` the build is the usual serial one. With `OMP_NUM_THREADS=1` an OpenMP build gives bit-for-bit the same result as the serial build; with more threads, sums are added in a different order and the results differ only by rounding. Set `OMP_NUM_THREADS` explicitly: if it is unset, OpenMP uses every core of the machine.
++Without `OPENMP=1` the build is the usual serial one. Every sum is taken in a fixed order, so an OpenMP build gives bit-for-bit the same result as the serial build at any `OMP_NUM_THREADS`. Set `OMP_NUM_THREADS` explicitly: if it is unset, OpenMP uses every core of the machine.
 +
  ## CONTACT 
  If you have any queries or questions related to ROHSA, please do not hesitate to contact us [here](amarchal@cita.utoronto.ca). Your feedback is welcome and important to us. 
  
 diff --git a/src/Makefile b/src/Makefile
-index e786c89..92da0b3 100644
+index e786c89..254404c 100644
 --- a/src/Makefile
 +++ b/src/Makefile
 @@ -10,6 +10,14 @@ GFLAGS= -O2 -I/usr/local/include -ffixed-line-length-none #-fbounds-check
@@ -58,8 +62,8 @@ index e786c89..92da0b3 100644
  # -L/Users/antoinemarchal/mylib/cfitsio-master
  
 +# Optional OpenMP build: make OPENMP=1. Set the number of threads with
-+# OMP_NUM_THREADS; with OMP_NUM_THREADS=1 the result is bit-for-bit the
-+# same as the default serial build.
++# OMP_NUM_THREADS. The result is bit-for-bit the same as the default serial
++# build at any number of threads.
 +ifeq ($(OPENMP),1)
 +GFLAGS += -fopenmp
 +CFLAGS += -fopenmp
@@ -69,18 +73,34 @@ index e786c89..92da0b3 100644
  
  all: blas.o lbfgsb.o linpack.o timer.o mod_constants.o mod_convert.o mod_inout.o mod_array.o mod_optimize.o mod_optimize_lym.o mod_minimize.o mod_functions.o mod_start.o mod_rohsa.o main.o
 diff --git a/src/mod_array.f90 b/src/mod_array.f90
-index ee35d36..9bbfe5c 100644
+index ee35d36..effc94f 100644
 --- a/src/mod_array.f90
 +++ b/src/mod_array.f90
-@@ -26,6 +26,7 @@ contains
+@@ -26,14 +26,22 @@ contains
      ! Only the interior points are convolved: they are the only ones kept,
      ! and their neighbours are always inside the padded array, so no bounds
      ! test is needed. The terms are added in the same order as before.
 +    ! Columns are independent and run in parallel with OpenMP.
      allocate(extended(dim_y+4, dim_x+4))
-     extended = 0._xp
+-    extended = 0._xp
++    ! Zero fill and interior copy are full-size array passes: OpenMP over columns.
++    !$omp parallel do schedule(static)
++    do j=1, dim_x+4
++       extended(:,j) = 0._xp
++    end do
++    !$omp end parallel do
  
-@@ -61,6 +62,7 @@ contains
++    !$omp parallel do private(i) schedule(static)
+     do j=1, dim_x
+        do i=1, dim_y
+           extended(2+i,2+j) = image(i,j)
+        end do
+     end do
++    !$omp end parallel do
+ 
+     do j=1, 2
+        do i=1, dim_y
+@@ -61,6 +69,7 @@ contains
      
      kc = dim_k / 2 + 1
  
@@ -88,7 +108,7 @@ index ee35d36..9bbfe5c 100644
      do j=1, dim_x
         do i=1, dim_y
            acc = 0._xp
-@@ -72,6 +74,7 @@ contains
+@@ -72,6 +81,7 @@ contains
            conv(i,j) = acc
         end do
      end do
@@ -97,55 +117,250 @@ index ee35d36..9bbfe5c 100644
    end subroutine convolution_2D_mirror
  
 diff --git a/src/mod_optimize.f90 b/src/mod_optimize.f90
-index b494bcd..b25d814 100644
+index b494bcd..2c59e1f 100644
 --- a/src/mod_optimize.f90
 +++ b/src/mod_optimize.f90
-@@ -148,7 +148,11 @@ contains
+@@ -108,7 +108,56 @@ contains
+   end subroutine mygrad_spec
  
-     ! params and residual are overwritten below, and ravel_3D overwrites g
-     ! except its last n_gauss entries, so only those and deriv are zeroed.
--    deriv = 0._xp
-+    !$omp parallel do schedule(static)
-+    do l=1, dim_x
-+       deriv(:,:,l) = 0._xp
+   
++  !! Data term of one spectrum: its share of f and the data part of the gradient of its 3*n_gauss
++  !! parameters (d). Each Gaussian is evaluated once per channel (ee) and used for the model and for
++  !! the three derivatives, so no residual cube is stored. The model, the residual and every
++  !! derivative are summed in the same order as in the separate loops this replaces. Explicit-shape
++  !! arguments let gfortran optimise the loops inside the OpenMP region.
++  subroutine data_term(dim_v, n_gauss, p, line, std, fp, d)
++    implicit none
++
++    integer, intent(in) :: dim_v, n_gauss
++    real(xp), intent(in) :: p(3*n_gauss), line(dim_v), std
++    real(xp), intent(out) :: fp, d(3*n_gauss)
++
++    integer :: k, l
++    real(xp) :: rr
++    real(xp) :: ee(dim_v, n_gauss), res(dim_v)
++
++    res = 0._xp
++    do l=1, n_gauss
++       do k=1, dim_v
++          ee(k,l) = exp( ( -(real(k,xp) - p(2+(3*(l-1))))**2) / (2._xp * p(3+(3*(l-1)))**2))
++          res(k) = res(k) + p(1+(3*(l-1))) * ee(k,l)
++       end do
 +    end do
-+    !$omp end parallel do
-     f = 0._xp
-     model = 0._xp
-     gauss = 0._xp
-@@ -164,6 +168,8 @@ contains
-     ! Compute the objective function and the gradient
-     ! Same model and objective as myresidual and myfunc_spec, written into
-     ! residual directly instead of a temporary allocated per spectrum.
-+    ! Spectra are independent: OpenMP over sky columns.
-+    !$omp parallel do private(i, k, l, model) reduction(+:f) schedule(static)
++    res = res - line
++
++    d = 0._xp
++    fp = 0._xp
++    if (std > 0._xp) then
++       fp = (0.5_xp * sum(res**2))/std**2
++       do l=1, n_gauss
++          do k=1, dim_v
++             rr = res(k)/std**2
++             d(1+(3*(l-1))) = d(1+(3*(l-1))) + ee(k,l) * rr
++             d(2+(3*(l-1))) = d(2+(3*(l-1))) + (p(1+(3*(l-1))) * &
++                  ( real(k,xp) - p(2+(3*(l-1))) ) / (p(3+(3*(l-1)))**2) * ee(k,l)) * rr
++             d(3+(3*(l-1))) = d(3+(3*(l-1))) + (p(1+(3*(l-1))) * &
++                  ( real(k,xp) - p(2+(3*(l-1))) )**2 / (p(3+(3*(l-1)))**3) * ee(k,l)) * rr
++          end do
++       end do
++    end if
++  end subroutine data_term
++
++
+   ! Compute the objective function for a cube and the gradient of the obkective function
++  !! The parameters are read from beta and the gradient is written to g in place: params(p,i,j)
++  !! of the original code is beta(p + np*((i-1) + dim_y*(j-1))) with np = 3*n_gauss, and deriv
++  !! has the same layout in g, so unravel_3D/ravel_3D were plain copies.
++  !! OpenMP: f and the b_params gradient are summed in an order that does not depend on the number
++  !! of threads (pixel terms of the data part in the original serial order, regularisation terms
++  !! column by column and then over columns), so the result is the same for any OMP_NUM_THREADS.
+   subroutine f_g_cube_fast(f, g, cube, beta, dim_v, dim_y, dim_x, n_gauss, kernel, lambda_amp, lambda_mu, lambda_sig, &
+        lambda_var_amp, lambda_var_mu, lambda_var_sig, std_map)
+     implicit none
+@@ -124,124 +173,107 @@ contains
+     real(xp), intent(inout) :: f
+     real(xp), intent(inout), dimension(:), allocatable :: g
+ 
+-    integer :: i, j, k, l
++    integer :: i, j, l, np
++    integer(8) :: o
+     integer :: n_beta
+-    real(xp), dimension(:,:,:), allocatable :: residual
+-    real(xp), dimension(:,:,:), allocatable :: params
+     real(xp), dimension(:), allocatable :: b_params
+     real(xp), dimension(:,:), allocatable :: conv_amp, conv_mu, conv_sig
+     real(xp), dimension(:,:), allocatable :: conv_conv_amp, conv_conv_mu, conv_conv_sig
+     real(xp), dimension(:,:), allocatable :: image_amp, image_mu, image_sig
+-    real(xp), dimension(:,:,:), allocatable :: deriv
+-    real(xp), dimension(:), allocatable :: model
+-    real(xp) :: gauss
+-    real(xp) :: ee, rr, fr, gb
++    real(xp), dimension(:,:), allocatable :: fpix
++    real(xp), dimension(:), allocatable :: frcol, gbcol
++    real(xp) :: fr, gb
++
++    np = 3*n_gauss
++    n_beta = (np * dim_y * dim_x) + n_gauss
+ 
+-    allocate(deriv(3*n_gauss, dim_y, dim_x))
+-    allocate(residual(dim_v, dim_y, dim_x))
+     allocate(b_params(n_gauss))
+-    allocate(params(3*n_gauss, dim_y, dim_x))
+     allocate(conv_amp(dim_y, dim_x), conv_mu(dim_y, dim_x), conv_sig(dim_y, dim_x))
+     allocate(conv_conv_amp(dim_y, dim_x), conv_conv_mu(dim_y, dim_x), conv_conv_sig(dim_y, dim_x))
+     allocate(image_amp(dim_y, dim_x), image_mu(dim_y, dim_x), image_sig(dim_y, dim_x))
+-    allocate(model(dim_v))
++    allocate(fpix(dim_y, dim_x), frcol(dim_x), gbcol(dim_x))
+ 
+-    ! params and residual are overwritten below, and ravel_3D overwrites g
+-    ! except its last n_gauss entries, so only those and deriv are zeroed.
+-    deriv = 0._xp
+-    f = 0._xp
+-    model = 0._xp
+-    gauss = 0._xp
+-    
+-    n_beta = (3*n_gauss * dim_y * dim_x) + n_gauss
+-    g((n_beta-n_gauss)+1:n_beta) = 0._xp
+-
+-    call unravel_3D(beta, params, 3*n_gauss, dim_y, dim_x)    
+     do i=1,n_gauss
+        b_params(i) = beta((n_beta-n_gauss)+i)
+     end do
+ 
+-    ! Compute the objective function and the gradient
+-    ! Same model and objective as myresidual and myfunc_spec, written into
+-    ! residual directly instead of a temporary allocated per spectrum.
++    ! Data term, spectra in parallel; each one sets its own np entries of g.
++    !$omp parallel do private(i, o) schedule(static)
      do j=1, dim_x
         do i=1, dim_y
-           model = 0._xp
-@@ -178,6 +184,7 @@ contains
-           end if
+-          model = 0._xp
+-          do l=1, n_gauss
+-             do k=1, dim_v
+-                model(k) = model(k) + gaussian(k, params(1+(3*(l-1)),i,j), params(2+(3*(l-1)),i,j), params(3+(3*(l-1)),i,j))
+-             end do
+-          end do
+-          residual(:,i,j) = model - cube(:,i,j)
+-          if (std_map(i,j) > 0._xp) then
+-             f = f + ((0.5_xp * sum(residual(:,i,j)**2))/std_map(i,j)**2)
+-          end if
++          o = int(np,8) * (int(i-1,8) + int(dim_y,8)*int(j-1,8))
++          call data_term(dim_v, n_gauss, beta(o+1:o+np), cube(:,i,j), std_map(i,j), fpix(i,j), g(o+1:o+np))
++       end do
++    end do
++    !$omp end parallel do
++
++    f = 0._xp
++    do j=1, dim_x
++       do i=1, dim_y
++          if (std_map(i,j) > 0._xp) f = f + fpix(i,j)
         end do
      end do
-+    !$omp end parallel do
  
-     ! Compute the objective function and the gradient
+-    ! Compute the objective function and the gradient
++    ! Regularisation, one Gaussian at a time
      do i=1, n_gauss
-@@ -199,6 +206,7 @@ contains
-        ! same result on one thread.
-        fr = 0._xp
-        gb = 0._xp
-+       !$omp parallel do private(j, k, ee, rr) reduction(+:fr, gb) schedule(static)
-        do l=1, dim_x
-           do j=1, dim_y
-              !Regularization
-@@ -229,6 +237,7 @@ contains
-           end do
-           !
-        end do
+-       !
+-       image_amp = params(1+(3*(i-1)),:,:)
+-       image_mu = params(2+(3*(i-1)),:,:)
+-       image_sig = params(3+(3*(i-1)),:,:)
+-       
++       !$omp parallel do private(j, o) schedule(static)
++       do l=1, dim_x
++          do j=1, dim_y
++             o = int(np,8) * (int(j-1,8) + int(dim_y,8)*int(l-1,8)) + 3*(i-1)
++             image_amp(j,l) = beta(o+1)
++             image_mu(j,l) = beta(o+2)
++             image_sig(j,l) = beta(o+3)
++          end do
++       end do
 +       !$omp end parallel do
++
+        call convolution_2D_mirror(image_amp, conv_amp, dim_y, dim_x, kernel, 3)
+        call convolution_2D_mirror(image_mu, conv_mu, dim_y, dim_x, kernel, 3)
+        call convolution_2D_mirror(image_sig, conv_sig, dim_y, dim_x, kernel, 3)
+-       
++
+        call convolution_2D_mirror(conv_amp, conv_conv_amp, dim_y, dim_x, kernel, 3)
+        call convolution_2D_mirror(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
+        call convolution_2D_mirror(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
+-       
+-       ! Regularisation terms of this Gaussian are summed in fr and gb and
+-       ! added to f and g once, so the loop can run in parallel with the
+-       ! same result on one thread.
+-       fr = 0._xp
+-       gb = 0._xp
++
++       ! The regularisation terms of f and of the b_params gradient are summed per column, then
++       ! over the columns in order.
++       !$omp parallel do private(j, o, fr, gb) schedule(static)
+        do l=1, dim_x
++          fr = 0._xp
++          gb = 0._xp
+           do j=1, dim_y
+-             !Regularization
+              fr = fr + (0.5_xp * lambda_amp * conv_amp(j,l)**2)
+              fr = fr + (0.5_xp * lambda_mu * conv_mu(j,l)**2)
+              fr = fr + (0.5_xp * lambda_sig * conv_sig(j,l)**2) + (0.5_xp * lambda_var_sig * (image_sig(j,l) - b_params(i))**2)
+-             
+-             gb = gb - (lambda_var_sig * (image_sig(j,l) - b_params(i)))        
+-             
+-             ! The Gaussian (ee) and the weighted residual (rr) are computed
+-             ! once per channel and shared by the three derivatives.
+-             if (std_map(j,l) > 0._xp) then
+-                do k=1, dim_v
+-                   ee = exp( ( -(real(k,xp) - params(2+(3*(i-1)),j,l))**2) / (2._xp * params(3+(3*(i-1)),j,l)**2))
+-                   rr = residual(k,j,l)/std_map(j,l)**2
+-                   deriv(1+(3*(i-1)),j,l) = deriv(1+(3*(i-1)),j,l) + ee * rr
+-                   deriv(2+(3*(i-1)),j,l) = deriv(2+(3*(i-1)),j,l) + (params(1+(3*(i-1)),j,l) * &
+-                        ( real(k,xp) - params(2+(3*(i-1)),j,l) ) / (params(3+(3*(i-1)),j,l)**2) * ee) * rr
+-                   deriv(3+(3*(i-1)),j,l) = deriv(3+(3*(i-1)),j,l) + (params(1+(3*(i-1)),j,l) * &
+-                        ( real(k,xp) - params(2+(3*(i-1)),j,l) )**2 / (params(3+(3*(i-1)),j,l)**3) * ee) * rr
+-                end do
+-             end if
+ 
+-             deriv(1+(3*(i-1)),j,l) = deriv(1+(3*(i-1)),j,l) + (lambda_amp * conv_conv_amp(j,l))
+-             deriv(2+(3*(i-1)),j,l) = deriv(2+(3*(i-1)),j,l) + (lambda_mu * conv_conv_mu(j,l))
+-             deriv(3+(3*(i-1)),j,l) = deriv(3+(3*(i-1)),j,l) + (lambda_sig * conv_conv_sig(j,l) + &
++             gb = gb - (lambda_var_sig * (image_sig(j,l) - b_params(i)))
++
++             o = int(np,8) * (int(j-1,8) + int(dim_y,8)*int(l-1,8)) + 3*(i-1)
++             g(o+1) = g(o+1) + (lambda_amp * conv_conv_amp(j,l))
++             g(o+2) = g(o+2) + (lambda_mu * conv_conv_mu(j,l))
++             g(o+3) = g(o+3) + (lambda_sig * conv_conv_sig(j,l) + &
+                   (lambda_var_sig * (image_sig(j,l) - b_params(i))))
+           end do
+-          !
++          frcol(l) = fr
++          gbcol(l) = gb
++       end do
++       !$omp end parallel do
++
++       fr = 0._xp
++       gb = 0._xp
++       do l=1, dim_x
++          fr = fr + frcol(l)
++          gb = gb + gbcol(l)
+        end do
         f = f + fr
-        g((n_beta-n_gauss)+i) = g((n_beta-n_gauss)+i) + gb
-     end do        
+-       g((n_beta-n_gauss)+i) = g((n_beta-n_gauss)+i) + gb
+-    end do        
+-    
+-    call ravel_3D(deriv, g, 3*n_gauss, dim_y, dim_x)
++       g((n_beta-n_gauss)+i) = gb
++    end do
+ 
+-    deallocate(deriv)
+-    deallocate(residual)
+     deallocate(b_params)
+-    deallocate(params)
+     deallocate(conv_amp, conv_mu, conv_sig)
+     deallocate(conv_conv_amp, conv_conv_mu, conv_conv_sig)
+     deallocate(image_amp, image_mu, image_sig)
++    deallocate(fpix, frcol, gbcol)
+ 
+   end subroutine f_g_cube_fast
+ 
 -- 
 2.56.0
 

@@ -32,7 +32,7 @@ make OPENMP=1
 OMP_NUM_THREADS=16 ./ROHSA parameters.txt
 ```
 
-Without `OPENMP=1` the build is the usual serial one. With `OMP_NUM_THREADS=1` an OpenMP build gives bit-for-bit the same result as the serial build; with more threads, sums are added in a different order and the results differ only by rounding. Set `OMP_NUM_THREADS` explicitly: if it is unset, OpenMP uses every core of the machine.
+Without `OPENMP=1` the build is the usual serial one. Every sum is taken in a fixed order, so an OpenMP build gives bit-for-bit the same result as the serial build at any `OMP_NUM_THREADS`. Set `OMP_NUM_THREADS` explicitly: if it is unset, OpenMP uses every core of the machine.
 
 ## CONTACT 
 If you have any queries or questions related to ROHSA, please do not hesitate to contact us [here](amarchal@cita.utoronto.ca). Your feedback is welcome and important to us. 

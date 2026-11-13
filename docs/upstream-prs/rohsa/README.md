@@ -21,8 +21,8 @@ says exactly how it changes the results:
 | 1 | `fix-lbfgsb-64bit-workspace` | master | Fix the 32-bit overflow in the L-BFGS-B workspace (segfault on large maps) | bit-for-bit identical where it ran before |
 | 2 | `perf-convolution-interior` | master | Convolve only the interior points | bit-for-bit identical |
 | 3 | `perf-cost-function-serial` | master | Gaussian once per channel, no redundant zeroing (bit-for-bit); per-Gaussian regularisation sum and integer exponents (rounding) | 3 commits, see PR |
-| 4 | `openmp-cost-function` | master, needs #2 #3 | Optional OpenMP build (`make OPENMP=1`) for the cost function; **justification for multi-core** | serial build unchanged; 1 thread = serial bit for bit |
-| 5 | `openmp-lbfgsb` | master, needs #4 | OpenMP in L-BFGS-B and BLAS | serial / 1 thread bit-for-bit identical to #4 |
+| 4 | `openmp-cost-function` | master, needs #2 #3 | Optional OpenMP build (`make OPENMP=1`) for the cost function, one spectrum at a time; **justification for multi-core** | same result at any thread count; rounding vs #2 + #3 |
+| 5 | `openmp-lbfgsb` | master, needs #4 | OpenMP in L-BFGS-B and BLAS, sums in fixed blocks | same result at any thread count; identical to #4 up to 65536 variables, rounding above |
 | 6 | `binary-input` | master | Optional binary input (`.bin`) + `ROHSApy.cube2bin` | text input unchanged; same values give identical output |
 
 #1, #2, #3 and #6 are independent and can be merged in any order. #4 contains
@@ -42,9 +42,12 @@ commit to review. All six merge together without conflicts (branch
   differences).
 - `results-*.txt`: our runs.
 
-Timings on real data use a 512 × 512 × 159 window of the GASKAP-HI LMC cube
-around 30 Doradus (N = 6), on one 192-core AMD EPYC (Zen 4) node of the NU
-Irgetas cluster.
+Timings on real data use windows of the GASKAP-HI LMC cube on 192-core AMD
+EPYC (Zen 4) nodes of the NU Irgetas cluster. The 2026-11-13 versions of #4 and
+#5 (sums in a fixed order) were checked as described in
+`../../validation/rohsa-deterministic-openmp-2026-11-13.md`; the patches in
+`patches/openmp-*` are those versions, force-pushed to the PR branches the
+same day.
 
 ## Submitting (after approval)
 

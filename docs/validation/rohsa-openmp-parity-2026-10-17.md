@@ -1,6 +1,8 @@
 # ROHSA OpenMP patch: parity check (2026-10-17)
 
-Status: validation evidence.
+Status: validation evidence. Superseded for thread-count behaviour by
+`rohsa-deterministic-openmp-2026-11-13.md`: since then the output no longer
+depends on the number of threads.
 
 Change: `rohsa/upstream/ROHSA/src/mod_optimize.f90` (`f_g_cube_fast`) parallelizes
 the per-pixel residual and gradient loops with OpenMP (`-fopenmp` in the

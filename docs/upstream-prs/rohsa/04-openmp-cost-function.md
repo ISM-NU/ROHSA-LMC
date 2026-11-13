@@ -7,8 +7,12 @@ Branch `openmp-cost-function` · base `master` · **depends on #2 and #3**
 ## Summary
 
 `make OPENMP=1` builds ROHSA with OpenMP, so one decomposition can use several
-cores of one machine. The default `make` is unchanged: without `-fopenmp` the
-directives are comments and the code is the serial code of #2 and #3.
+cores of one machine. Every sum is taken in a fixed order, so the result is
+bit-for-bit the same at any `OMP_NUM_THREADS` and in the serial build.
+
+Updated 2026-11-13: the first version used OpenMP reductions, so the result
+changed with the number of threads. This version removes that and also makes
+the serial code faster (one spectrum at a time, no residual cube).
 
 ## Why go from one core to several
 
@@ -19,7 +23,7 @@ into independent pieces without changing the result. For the GASKAP-HI cube of
 the Large Magellanic Cloud we decompose a 2048 × 2048 × 159 region: 75 million
 parameters with N = 6, 101 million with N = 8.
 
-**Measured speed-up.** We timed a 512 × 512 × 159 window of that cube (N = 6,
+**Measured speed-up (first version).** We timed a 512 × 512 × 159 window of that cube (N = 6,
 λ′σ = 30). Each run had its own allocation of exactly that many cores on one
 AMD EPYC 9684X node. The nodes were shared with other jobs, so expect about
 ±10 % per number. Wall time, and speed-up over one thread of the same build:
@@ -40,6 +44,11 @@ PRs. At the one-thread rate above, it would take roughly 13 times as long, about
 1.6 days. That is an extrapolation from the window; we did not make a serial run
 of the full region.
 
+**This version against the first one** (both with #5, same node, N = 16):
+512 × 512 × 159 at 32 threads, 724 s → 539 s, peak memory 4.4 → 3.9 GiB;
+128 × 128 × 159 at one thread, 452–519 s → 325–368 s; 2048 × 2048 × 159 for
+10 iterations at 32 threads, 323 s → 260 s.
+
 **Choosing hyper-parameters needs many runs.** N, λ and λ′σ have to be chosen
 by comparing decompositions (the paper's recommendation, and what we do on
 smaller windows first). At a day per run on one core, a small grid of settings
@@ -59,50 +68,50 @@ on one map takes weeks; with threads it fits in a few days on one node.
 
 **What it costs:**
 
-- *No change unless asked for*: the default build is serial and identical to
-  #2 + #3.
-- *Reproducibility*: with `OMP_NUM_THREADS=1` an OpenMP build gives bit-for-bit
-  the serial result. With more threads the objective is summed in a different
-  order, so results differ by rounding only. On the real 512 × 512 window (N = 6), the
-per-pixel integrated model at 2, 8 or 32 threads differs from 1 thread by
-median 5–7e-4, 99th percentile < 1e-2. 2 vs 32 threads differ by the same
-amount, so there is no trend with thread count. For
-  scale: changing the input values in their last bit only (≤ 5.6e-17) already
-  moves the same quantity by median 5.8e-5 — the optimizer amplifies
-  rounding-level differences, so a different summation order is the same
-  kind of difference, not a different solution.
-- *Memory*: no large array is copied per thread. The private variables are
-  scalars and one spectrum-sized model array; peak memory is the same as the
-  serial build.
-- *Maintenance*: 4 directive pairs in two routines, no new dependencies
-  (OpenMP ships with gfortran).
+- *Reproducibility*: the result does not depend on the number of threads.
+  Against #2 + #3 the serial result changes by rounding only: the derivatives
+  reuse the `exp()` values of the model (gfortran vectorises that loop, and the
+  vector `exp()` can differ from the scalar one in the last bit), and the
+  regularisation sum is grouped by sky column. With `exp()` recomputed as
+  before, the cost function is bitwise identical to #2 + #3.
+- *Memory*: lower than before. The residual cube is gone, and no large array is
+  copied per thread (each thread keeps one spectrum's model and Gaussians).
+  f is stored per pixel (one map) so that it can be added in serial order.
+- *Maintenance*: directives on loops over sky columns, one new routine
+  (`data_term`), no new dependencies (OpenMP ships with gfortran).
 
 ## What runs in parallel
 
 All loops over independent sky columns:
 
-1. the model/residual/objective loop of `f_g_cube_fast` (one spectrum per
-   pixel; the objective is a reduction);
-2. the gradient and regularisation loop for each Gaussian (each pixel writes
-   only its own derivatives; the per-Gaussian sums from #3 are reductions,
-   which is why #3 introduced them);
-3. the zeroing of `deriv`;
-4. `convolution_2D_mirror` (rewritten in #2 so that columns are independent).
+1. `data_term` for each spectrum: model, residual, the spectrum's share of f
+   and its derivatives, written straight into `g`; the shares of f are then
+   added in pixel order;
+2. per Gaussian, the extraction of the three parameter maps from `beta` and the
+   regularisation loop (each pixel writes only its own gradient entries; the
+   regularisation parts of f and of the `b_params` gradient are summed per
+   column, then over the columns in order);
+3. `convolution_2D_mirror`: zero fill, interior copy and the convolution loop
+   (rewritten in #2 so that columns are independent).
 
 ## How we checked it
 
-On the synthetic 256 × 256 × 100 cube of `check/make_synthetic.py` (N = 4, one thread):
+- Serial build and `OPENMP=1` at 1, 4 and 8 threads: bit-for-bit identical
+  (48 × 48 × 159 window of the LMC cube, N = 8; 512 × 512 × 159 window, N = 16,
+  at 16 and 32 threads).
+- With `exp()` recomputed in the derivative loop as before, the serial build is
+  bit-for-bit identical to #2 + #3, so the rounding differences come only from
+  the two sources above.
+- Equivalence with #2 + #3 under rounding: we moved every input value by one
+  float32 ulp at random, 24 times, on two 128 × 128 × 159 windows, and ran both
+  versions. Pairwise differences between the two versions are the same size as
+  within each version (permutation test p ≥ 0.78), and no summary statistic
+  (final cost, total flux, flux by line width, components per pixel) differs
+  (smallest Mann–Whitney p = 0.06, 18 tests). Some runs of both versions end in
+  a worse local minimum, at similar rates.
 
-- serial build of this PR: bit-for-bit identical to #2 + #3 (serial);
-- `OPENMP=1` build at `OMP_NUM_THREADS=1`: bit-for-bit identical to the serial
-  build.
-
-On the real 512 × 512 × 159 window (N = 6, λ′σ = 30) at 2, 4, 8, 16 and 32
-threads, every run converged. Compared with 1 thread, the per-pixel integrated
-model differs by median 5.4e-4 to 7.3e-4, 99th percentile 6.4e-3 to 7.8e-3.
-The largest single-pixel differences are up to 0.6, in a few pixels; we read
-those as places where two Gaussians can trade flux almost freely. Timings and
-comparisons: `check/results-timing-2026-10-19.txt`.
+The first version's timings and thread comparisons are in
+`check/results-timing-2026-10-19.txt`.
 
 ## How to use
 
