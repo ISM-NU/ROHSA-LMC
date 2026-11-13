@@ -1,7 +1,7 @@
-From 02f52a863aa34baeb150c474da70b85d09982f8b Mon Sep 17 00:00:00 2001
+From 0989d37f89365c602dba0fa565429b9ab981bd0c Mon Sep 17 00:00:00 2001
 From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 04:36:18 +0500
-Subject: [PATCH 6/6] OpenMP in L-BFGS-B and BLAS (results independent of the
+Subject: [PATCH 7/8] OpenMP in L-BFGS-B and BLAS (results independent of the
  thread count)
 
 The loops of L-BFGS-B over all variables run in parallel: cauchy, cmprlb,

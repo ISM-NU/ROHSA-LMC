@@ -1406,9 +1406,13 @@ c     ************
       double precision one,zero
       parameter        (one=1.0d0,zero=0.0d0)
       include 'omp_block.h'
-      integer          ib,nb,ip(m)
+      integer          ib,nb,ip(m),k,kb,kf
       double precision f1b(max(n-1,0)/nblk+1),
      +                 pb(2*m,max(n-1,0)/nblk+1)
+      integer          nbk(max(n-1,0)/nblk+1),nfk(max(n-1,0)/nblk+1),
+     +                 ikb(max(n-1,0)/nblk+1)
+      double precision bkb(max(n-1,0)/nblk+1)
+      logical          bndb(max(n-1,0)/nblk+1)
  
 c     Check the status of the variables, reset iwhere(i) if necessary;
 c       compute the Cauchy direction d and the breakpoints t; initialize
@@ -1500,38 +1504,83 @@ c             calculate p := p - W'e_i* (g_i).
   53     continue
   54  continue
 
-      do 58 i = 1, n
+c     Breakpoint and free-variable lists, built in blocks of nblk:
+c     each block counts its entries, the counts give each block its
+c     offsets, and the blocks fill their part in parallel. iorder, t,
+c     nbreak, nfree, bnded and ibkmin (first index of the smallest t)
+c     are exactly those of the original serial loop.
+!$omp parallel do private(i,neggi) schedule(static) if(nb .gt. 1)
+      do 56 ib = 1, nb
+         nbk(ib) = 0
+         nfk(ib) = 0
+         do 55 i = (ib-1)*nblk + 1, min(n, ib*nblk)
+            if (iwhere(i) .eq. 0 .or. iwhere(i) .eq. -1) then
+               neggi = -g(i)
+               if ((nbd(i) .le. 2 .and. nbd(i) .ne. 0
+     +              .and. neggi .lt. zero) .or.
+     +             (nbd(i) .ge. 2 .and. neggi .gt. zero)) then
+                  nbk(ib) = nbk(ib) + 1
+               else
+                  nfk(ib) = nfk(ib) + 1
+               endif
+            endif
+  55     continue
+  56  continue
+!$omp end parallel do
+!$omp parallel do private(i,k,kb,kf,neggi,tl,tu) schedule(static)
+!$omp+ if(nb .gt. 1)
+      do 57 ib = 1, nb
+         kb = 0
+         kf = 0
+         do 59 k = 1, ib - 1
+            kb = kb + nbk(k)
+            kf = kf + nfk(k)
+  59     continue
+         ikb(ib) = 0
+         bkb(ib) = zero
+         bndb(ib) = .true.
+         do 58 i = (ib-1)*nblk + 1, min(n, ib*nblk)
          if (iwhere(i) .eq. 0 .or. iwhere(i) .eq. -1) then
             neggi = -g(i)
             if (nbd(i) .le. 2 .and. nbd(i) .ne. 0
      +                        .and. neggi .lt. zero) then
-c                                 x(i) + d(i) is bounded; compute t(i).
                tl = x(i) - l(i)
-               nbreak = nbreak + 1
-               iorder(nbreak) = i
-               t(nbreak) = tl/(-neggi)
-               if (nbreak .eq. 1 .or. t(nbreak) .lt. bkmin) then
-                  bkmin = t(nbreak)
-                  ibkmin = nbreak
+               kb = kb + 1
+               iorder(kb) = i
+               t(kb) = tl/(-neggi)
+               if (ikb(ib) .eq. 0 .or. t(kb) .lt. bkb(ib)) then
+                  bkb(ib) = t(kb)
+                  ikb(ib) = kb
                endif
             else if (nbd(i) .ge. 2 .and. neggi .gt. zero) then
-c                                 x(i) + d(i) is bounded; compute t(i).
                tu = u(i) - x(i)
-               nbreak = nbreak + 1
-               iorder(nbreak) = i
-               t(nbreak) = tu/neggi
-               if (nbreak .eq. 1 .or. t(nbreak) .lt. bkmin) then
-                  bkmin = t(nbreak)
-                  ibkmin = nbreak
+               kb = kb + 1
+               iorder(kb) = i
+               t(kb) = tu/neggi
+               if (ikb(ib) .eq. 0 .or. t(kb) .lt. bkb(ib)) then
+                  bkb(ib) = t(kb)
+                  ikb(ib) = kb
                endif
             else
-c                x(i) + d(i) is not bounded.
-               nfree = nfree - 1
-               iorder(nfree) = i
-               if (abs(neggi) .gt. zero) bnded = .false.
+               kf = kf + 1
+               iorder(n + 1 - kf) = i
+               if (abs(neggi) .gt. zero) bndb(ib) = .false.
             endif
          endif
-  58  continue 
+  58     continue
+  57  continue
+!$omp end parallel do
+      do 61 ib = 1, nb
+         nbreak = nbreak + nbk(ib)
+         nfree = nfree - nfk(ib)
+         if (.not. bndb(ib)) bnded = .false.
+         if (ikb(ib) .ne. 0) then
+            if (ibkmin .eq. 0 .or. bkb(ib) .lt. bkmin) then
+               bkmin = bkb(ib)
+               ibkmin = ikb(ib)
+            endif
+         endif
+  61  continue
  
 c     The indices of the nonzero components of d are now stored
 c       in iorder(1),...,iorder(nbreak) and iorder(nfree),...,iorder(n).
@@ -2576,13 +2625,15 @@ c
 c
 c     **********
 
-      integer          i
+      integer          i,ib,nb
       double           precision ddot,a1,a2
       double precision one,zero,big
       parameter        (one=1.0d0,zero=0.0d0,big=1.0d+10)
       double precision ftol,gtol,xtol
       parameter        (ftol=1.0d-3,gtol=0.9d0,xtol=0.1d0)
       include 'omp_block.h'
+      logical          zb(max(n-1,0)/nblk+1)
+      double precision qb(max(n-1,0)/nblk+1)
 
       if (task(1:5) .eq. 'FG_LN') goto 556
 
@@ -2596,26 +2647,43 @@ c     Determine the maximum step length.
          if (iter .eq. 0) then
             stpmx = one
          else
-            do 43 i = 1, n
+c           Step bound in blocks: 0 if some variable already sits on
+c           the bound it moves towards, otherwise the smallest ratio
+c           (bound - x)/d, at most big. Min and the zero test do not
+c           depend on the order, so the result is the same for any
+c           number of threads.
+            nb = (n-1)/nblk + 1
+!$omp parallel do private(i,a1,a2) schedule(static) if(nb .gt. 1)
+            do 44 ib = 1, nb
+               zb(ib) = .false.
+               qb(ib) = big
+               do 43 i = (ib-1)*nblk + 1, min(n, ib*nblk)
                a1 = d(i)
                if (nbd(i) .ne. 0) then
                   if (a1 .lt. zero .and. nbd(i) .le. 2) then
                      a2 = l(i) - x(i)
                      if (a2 .ge. zero) then
-                        stpmx = zero
-                     else if (a1*stpmx .lt. a2) then
-                        stpmx = a2/a1
+                        zb(ib) = .true.
+                     else if (a2/a1 .lt. qb(ib)) then
+                        qb(ib) = a2/a1
                      endif
                   else if (a1 .gt. zero .and. nbd(i) .ge. 2) then
                      a2 = u(i) - x(i)
                      if (a2 .le. zero) then
-                        stpmx = zero
-                     else if (a1*stpmx .gt. a2) then
-                        stpmx = a2/a1
+                        zb(ib) = .true.
+                     else if (a2/a1 .lt. qb(ib)) then
+                        qb(ib) = a2/a1
                      endif
                   endif
                endif
-  43        continue
+  43           continue
+  44        continue
+!$omp end parallel do
+            do 42 ib = 1, nb
+               if (zb(ib)) stpmx = zero
+               if (stpmx .ne. zero .and. qb(ib) .lt. stpmx)
+     +            stpmx = qb(ib)
+  42        continue
          endif
       endif
  

@@ -47,7 +47,10 @@ EPYC (Zen 4) nodes of the NU Irgetas cluster. The 2026-11-13 versions of #4 and
 #5 (sums in a fixed order) were checked as described in
 `../../validation/rohsa-deterministic-openmp-2026-11-13.md`; the patches in
 `patches/openmp-*` are those versions, force-pushed to the PR branches the
-same day.
+same day. Two further commits that leave the output bit-for-bit
+unchanged (`exp()` skipped where it is exactly zero; breakpoint list and step
+bound of L-BFGS-B in parallel) were added the same evening; they are in the
+patches but not yet on the PR branches.
 
 ## Submitting (after approval)
 

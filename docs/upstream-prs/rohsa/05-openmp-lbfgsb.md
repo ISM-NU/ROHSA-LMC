@@ -1,7 +1,8 @@
 # OpenMP in L-BFGS-B and BLAS
 
 Branch `openmp-lbfgsb` · base `master` · **depends on #4** (please review the
-last commit, "OpenMP in L-BFGS-B and BLAS (results independent of the thread count)").
+last two commits, "OpenMP in L-BFGS-B and BLAS (results independent of the
+thread count)" and "L-BFGS-B: breakpoint list and step bound in parallel").
 
 ## Summary
 
@@ -28,8 +29,11 @@ at the rounding level.
 Loops that update one element per variable run in parallel as they are. In
 `cmprlb` and `subsm` the loop over the variables is now the outer loop, which
 keeps the order of the updates of each element. The breakpoint list in
-`cauchy`, the step bound in `lnsrlb` and the backtracking in `subsm` stay serial
-because their result depends on the order.
+`cauchy` is built in two passes over the blocks (count, then fill at the
+counted offsets), so it comes out in the same order as before; its minimum is
+combined over blocks with the same strict test. The step bound in `lnsrlb` is
+a minimum and a zero test, which do not depend on the order. The heap of
+breakpoints in `hpsolb` and the backtracking in `subsm` stay serial.
 
 ## Checks
 
@@ -40,5 +44,8 @@ because their result depends on the order.
   512 × 512 × 159 at 32 threads, 724 s → 539 s, and 16 threads give the same
   output as 32; 2048 × 2048 × 159 (n = 201 million) for 10 iterations at
   32 threads, 323 s → 260 s.
+- The last commit and the `exp()` change of #4 do not change the output (same
+  tests, bit-for-bit). Together they take a further 12–15 %: 512 × 512 × 159,
+  100 iterations at 32 threads, 118–122 s → 103 s (paired runs on one node).
 - Equivalence with the previous summation order under ±1-ulp input
   perturbations: see #4.

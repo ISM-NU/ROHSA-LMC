@@ -84,3 +84,31 @@ against them; replicate pairs 0.043–0.075).
   commit of the dependent repo.
 - Some fraction of runs on a crop ends in a worse local minimum under either
   build; compare final costs before reading a single run.
+
+## Follow-up, same day: changes with bit-for-bit identical output
+
+- `data_term` does not call `exp()` more than 39σ + 2 channels from a line
+  centre. The argument there is below -760 and `exp()` is exactly 0 below
+  -745.2. The vector `exp()` falls back to slow scalar code for such
+  arguments, and for narrow Gaussians that is most of the channels.
+- L-BFGS-B `cauchy`: the breakpoint list is built in two parallel passes over
+  blocks (count, then fill at the counted offsets). `iorder`, `t`, `nbreak`,
+  `nfree`, `bnded` and `ibkmin` are exactly those of the serial loop.
+- L-BFGS-B `lnsrlb`: the step bound (a minimum and a zero test) is taken per
+  block in parallel.
+
+Checks: output identical to the build above at 1, 4, 16 and 32 threads (local
+N = 8 and N = 12 test cubes; 512² tile at 100 and 400 iterations), also with
+`nblk = 1024` to force many blocks. Paired runs on one node, 512² tile,
+100 iterations, 32 threads: 118–122 s before, 103 s after (12–15 % faster).
+
+Tried and dropped: replacing the serial breakpoint heap (`hpsolb`, still about
+a quarter of the main-thread samples) by a parallel selection of the smallest
+breakpoints, exact with a fallback to the heap. One batch of 64 gave no gain
+(a third of the `cauchy` calls need more breakpoints and fall back), and
+repeated batches were 2.5 times slower: some calls walk through thousands of
+breakpoints, where the heap's O(log n) pops are cheaper than repeated passes.
+
+Not done: `-march=znver4 -O3` gave a further 15 % on the tile but changes
+rounding, so it would need its own ±1-ulp ensemble, and the binary would run
+only on Zen 4 nodes.

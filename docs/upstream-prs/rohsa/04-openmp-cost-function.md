@@ -1,8 +1,9 @@
 # Optional OpenMP parallelisation of the cost function
 
 Branch `openmp-cost-function` · base `master` · **depends on #2 and #3**
-(their commits are included; please review the last commit,
-"Optional OpenMP parallelisation of the cost function").
+(their commits are included; please review the last two commits,
+"Optional OpenMP parallelisation of the cost function" and "Skip exp() where it
+is exactly zero").
 
 ## Summary
 
@@ -86,7 +87,9 @@ All loops over independent sky columns:
 
 1. `data_term` for each spectrum: model, residual, the spectrum's share of f
    and its derivatives, written straight into `g`; the shares of f are then
-   added in pixel order;
+   added in pixel order. `exp()` is not called more than 39σ + 2 channels from
+  a line centre, where its argument is below -760 and the result is exactly 0
+  (the vector `exp()` falls back to slow scalar code there; output unchanged);
 2. per Gaussian, the extraction of the three parameter maps from `beta` and the
    regularisation loop (each pixel writes only its own gradient entries; the
    regularisation parts of f and of the `b_params` gradient are summed per
