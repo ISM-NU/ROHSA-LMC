@@ -7,16 +7,16 @@ Julia package, `RohsaLMC`. The package prepares inputs, runs ROHSA, derives
 FITS products from its fitted parameters, builds velocity-layer cubes and
 de-rotates cubes by the disk velocity. It does not reimplement the optimizer.
 Experiments that use it (scans, nulls, injections, cold-gas maps) live in
-[LMC-cold-gas](https://github.com/ISM-NU/LMC-cold-gas), not here.
+the group's LMC-cold-gas repository, which stays private until publication.
 
 ## Setup
 
-Usually this repository sits in the LMC workspace folder (`~/Projects/LMC`), whose `setup.sh` clones all related repositories next to each other and links the shared data; its AGENTS.md has the rules that span repositories.
+Group members usually work from the LMC workspace (the private ISM-NU/LMC-workspace repository), whose `setup.sh` clones the related repositories side by side and links the shared `lmc-data` folder.
 
 ```bash
-git clone --recursive git@github.com:ISM-NU/ROHSA-LMC.git
+git clone --recursive https://github.com/ISM-NU/ROHSA-LMC.git
 cd ROHSA-LMC
-ln -s ../lmc-data data          # shared data folder ~/Projects/LMC/lmc-data, ignored by git
+ln -s ../lmc-data data          # shared data folder next to the repo, ignored by git
 git submodule foreach --recursive 'ln -sfn "$toplevel/data" data'   # same data inside submodules
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
@@ -61,8 +61,8 @@ ROHSA workflow details: `rohsa/README.md`.
 ## Related repos
 
 - [VGT.jl](https://github.com/ISM-NU/VGT.jl) - the VGT method (`VGT` package). Pinned here as `deps/VGT`.
-- [LMC-foreground](https://github.com/ISM-NU/LMC-foreground) - Milky Way foreground, Planck and starlight comparisons. Experiments.
-- [LMC-cold-gas](https://github.com/ISM-NU/LMC-cold-gas) - ROHSA runs and cold H I work. Pins this repo.
+- LMC-foreground (private until publication) - Milky Way foreground, Planck and starlight comparisons. Experiments.
+- LMC-cold-gas (private until publication) - ROHSA runs and cold H I work. Pins this repo.
 - [LMC-shells](https://github.com/ISM-NU/LMC-shells) - optical supergiant-shell research. Experiments.
 
 ## License
