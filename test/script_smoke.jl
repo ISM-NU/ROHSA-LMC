@@ -203,6 +203,14 @@ using Random
         wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, 6,
                                        merge(override_opts, Dict("regul-grad-adjoint" => "true")))
         @test occursin("regul_grad_adjoint = .true.", read(params_path, String))
+        # Budget-study switches: absent unless set; checkpoints go next to the output, sorted.
+        @test !occursin("maxiter_last", text) && !occursin("checkpoint", text)
+        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, 6,
+                                       merge(override_opts, Dict("maxiter-last" => "5000", "checkpoint-at" => "800,100")))
+        text = read(params_path, String)
+        @test occursin("maxiter_last = 5000", text)
+        @test occursin("checkpoint_at = 100,800", text)
+        @test occursin("checkpoint_prefix = '$(joinpath(dir, "checkpoints", "rohsa_n6"))'", text)
     end
 
     # Per-pixel noise map for ROHSA: header "ny nx", rows "y x sigma" (0-based), bad pixels written as 0
