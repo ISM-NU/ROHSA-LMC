@@ -91,6 +91,8 @@ contains
     
     real(xp), dimension(:,:), allocatable :: kernel !! convolution kernel 
     real(xp), dimension(:,:), allocatable :: map
+    ! Live channel range (mod_array use_range): full-resolution maps and the same on the padded grid
+    integer, dimension(:,:), allocatable :: lo_full, hi_full, lo_cube, hi_cube
 
     real(xp) :: lctime, uctime
     
@@ -171,6 +173,19 @@ contains
     write(*,*) "number of los = ", dim_data(2)*dim_data(3)
     
     nside = dim2nside(dim_data)
+
+    ! Live channel range (opt-in, mod_array): read the per-pixel ranges; nothing below changes without them.
+    if (len_trim(filename_range) > 0) then
+       call read_range(filename_range, lo_full, hi_full)
+       if (size(lo_full,1) /= dim_data(2) .or. size(lo_full,2) /= dim_data(3)) stop "range file: wrong map size"
+       if (lym .eqv. .true.) stop "range file: not supported with lym"
+       lo_full = max(lo_full, 1)
+       hi_full = min(hi_full, dim_data(1))
+       use_range = .true.
+       print*, "filename_range = '", trim(filename_range), "'"
+       print*, "pixels without data = ", count(lo_full > hi_full), ", with a partial range = ", &
+            count(lo_full <= hi_full .and. (lo_full > 1 .or. hi_full < dim_data(1)))
+    end if
     
     write(*,*) "nside = ", nside
 
@@ -217,6 +232,18 @@ contains
 
        call reshape_up(data, cube, dim_data, dim_cube)
 
+       if (use_range) then
+          ! Same padding as reshape_up; padded pixels have no data.
+          allocate(lo_cube(dim_cube(2), dim_cube(3)), hi_cube(dim_cube(2), dim_cube(3)))
+          lo_cube = 1
+          hi_cube = 0
+          lo_cube((dim_cube(2)-dim_data(2))/2+1:(dim_cube(2)-dim_data(2))/2+dim_data(2), &
+               (dim_cube(3)-dim_data(3))/2+1:(dim_cube(3)-dim_data(3))/2+dim_data(3)) = lo_full
+          hi_cube((dim_cube(2)-dim_data(2))/2+1:(dim_cube(2)-dim_data(2))/2+dim_data(2), &
+               (dim_cube(3)-dim_data(3))/2+1:(dim_cube(3)-dim_data(3))/2+dim_data(3)) = hi_full
+          std_cube = 0._xp
+       end if
+
        !Allocate memory for parameters grids
        if (descent .eqv. .true.) then
           allocate(fit_params(3*n_gauss, 1, 1))
@@ -248,7 +275,14 @@ contains
 
              allocate(cube_mean(dim_cube(1), power, power))
 
-             call mean_array(power, cube, cube_mean)
+             if (use_range) then
+                ! Coarse level: live channels only, union of the children's ranges (mean_array_live).
+                if (allocated(range_lo)) deallocate(range_lo, range_hi)
+                allocate(range_lo(power, power), range_hi(power, power))
+                call mean_array_live(power, cube, lo_cube, hi_cube, cube_mean, range_lo, range_hi)
+             else
+                call mean_array(power, cube, cube_mean)
+             end if
 
              if (n == 0) then
                 if (init_spec .eqv. .true.) then
@@ -293,7 +327,10 @@ contains
                 if (n > 0 .and. n < nside) then
                    allocate(std_map(power, power))
 
-                   if (noise .eqv. .true.) then
+                   if ((noise .eqv. .true.) .and. use_range) then
+                      call reshape_noise_up(std_data, std_cube, dim_data, dim_cube)
+                      call mean_map_live(power, std_cube, lo_cube, hi_cube, std_map)
+                   else if (noise .eqv. .true.) then
                       call reshape_noise_up(std_data, std_cube, dim_data, dim_cube)
                       call mean_map(power, std_cube, std_map) 
                       ! std_map = std_map / sqrt(real(2**(2*(nside-n)),xp))
@@ -382,6 +419,13 @@ contains
        std_map = std_data
     else   
        call set_stdmap(std_map, data, lstd, ustd)
+    end if
+
+    if (use_range) then
+       if (allocated(range_lo)) deallocate(range_lo, range_hi)
+       allocate(range_lo(dim_data(2), dim_data(3)), range_hi(dim_data(2), dim_data(3)))
+       range_lo = lo_full
+       range_hi = hi_full
     end if
     
     if (regul .eqv. .true.) then

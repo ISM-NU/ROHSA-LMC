@@ -74,3 +74,9 @@ These switches exist only in our vendored copy and are off by default, so a run 
 - `maxiter_last`, `checkpoint_at`, `checkpoint_prefix` (mod_array.f90, mod_minimize.f90 `write_checkpoints`): a
   separate evaluation limit for the full-resolution level, and that level's parameters written at chosen
   evaluation counts, so a budget curve is read off one long run. Test: `test/rohsa_checkpoint.jl`.
+- `filename_range` (mod_array.f90, mod_inout.f90 `read_range`, mod_optimize.f90 `data_term`, mod_functions.f90
+  `mean_array_live`, `mean_map_live` and the no-data amplitude bound in `update`, mod_rohsa.f90): per-pixel live
+  channel range; channels outside it carry no data term, pixels with an empty range none at all. Candidate for an
+  upstream PR (not drafted yet): every change sits behind `use_range` and is marked "live channel range"; without
+  the key the output is byte-identical. Evidence: `../../validation/rohsa-live-channel-range-2026-11-22.md`. Test:
+  `test/rohsa_live_range.jl`.
