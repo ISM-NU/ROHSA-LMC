@@ -64,3 +64,13 @@ patches but not yet on the PR branches.
    the upstream README) with the PR links and a two-line summary.
 
 PR texts: `01-…md` to `06-…md` (title = first heading).
+
+## Local-only changes (not proposed upstream)
+
+These switches exist only in our vendored copy and are off by default, so a run without them is unchanged:
+
+- `regul_grad_adjoint` (mod_array.f90): exact gradient of the smoothing term at map edges, and one `lbfgsb_stop`
+  line per fit with iterations, evaluations, cost, projected gradient and stop reason (mod_minimize.f90).
+- `maxiter_last`, `checkpoint_at`, `checkpoint_prefix` (mod_array.f90, mod_minimize.f90 `write_checkpoints`): a
+  separate evaluation limit for the full-resolution level, and that level's parameters written at chosen
+  evaluation counts, so a budget curve is read off one long run. Test: `test/rohsa_checkpoint.jl`.

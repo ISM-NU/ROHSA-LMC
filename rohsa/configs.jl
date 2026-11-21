@@ -47,6 +47,8 @@ const ROHSA_CONFIG_KEYS = Dict(
     "init_option" => "init-option",
     "maxiter_init" => "maxiter-init",
     "maxiter" => "maxiter",
+    "maxiter_last" => "maxiter-last",
+    "checkpoint_at" => "checkpoint-at",
     "m" => "m",
     "noise" => "rohsa-noise",
     "regul" => "regul",
@@ -105,6 +107,11 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     # default so existing runs stay reproducible; the original code is wrong in the two outer rows and
     # columns of every level. Emitted only when true, so older ROHSA binaries still read the namelist.
     "regul-grad-adjoint" => "false",
+    # Budget study (mod_array.f90): evaluation limit of the full-resolution level only (0 = maxiter), and
+    # evaluation counts at which that level's parameters are written to <run>/checkpoints/rohsa_n<N>_e<k>.ckpt
+    # (read with read_rohsa_checkpoint). Emitted only when set, so older binaries still read the namelist.
+    "maxiter-last" => "0",
+    "checkpoint-at" => "",
     # Per-pixel noise for ROHSA (2D FITS, crop-sized, Julia x-y order). Empty = one level from the cube
     # (robust_channel_difference_noise). Pixels with NaN or <= 0 are written as 0, which ROHSA skips in the data
     # term at the full-resolution level (their parameters follow the smoothing term): used for held-out blocks.
@@ -188,6 +195,14 @@ function parse_bool(raw)
     throw(ArgumentError("Expected boolean string, got $(repr(raw))"))
 end
 
+# "100,200,400" -> [100, 200, 400]; at most 64 values (mod_array.f90 checkpoint_at).
+function checkpoint_evals(value::AbstractString)
+    v = [parse(Int, strip(x)) for x in split(value, ",") if !isempty(strip(x))]
+    length(v) <= 64 || throw(ArgumentError("checkpoint_at takes at most 64 values"))
+    all(>(0), v) || throw(ArgumentError("checkpoint_at values must be positive"))
+    return sort(unique(v))
+end
+
 function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_path, n_gauss::Int, opts)
     open(path, "w") do io
         # Upstream ROHSA consumes a Fortran namelist. Numeric real values are
@@ -224,6 +239,15 @@ function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_pa
         println(io, "    ,save_grid = $(fortran_bool(opts["save-grid"]))")
         if parse_bool(get(opts, "regul-grad-adjoint", "false"))
             println(io, "    ,regul_grad_adjoint = .true.")
+        end
+        maxiter_last = parse(Int, get(opts, "maxiter-last", "0"))
+        maxiter_last > 0 && println(io, "    ,maxiter_last = $maxiter_last")
+        ckpt = checkpoint_evals(get(opts, "checkpoint-at", ""))
+        if !isempty(ckpt)
+            ckpt_dir = joinpath(dirname(abspath(out_path)), "checkpoints")
+            mkpath(ckpt_dir)
+            println(io, "    ,checkpoint_at = $(join(ckpt, ","))")
+            println(io, "    ,checkpoint_prefix = '$(joinpath(ckpt_dir, "rohsa_n$n_gauss"))'")
         end
         println(io, "    /")
     end

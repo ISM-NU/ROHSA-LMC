@@ -16,7 +16,32 @@ function readdlm_skip_comments(path::AbstractString)
     return out
 end
 
+# A budget-study checkpoint (mod_minimize.f90 write_checkpoints): header int64 n_gauss, dim_y, dim_x, evals,
+# iter; float64 f, projg; then the full-resolution parameter vector, 3*n_gauss fastest, then the .dat row index
+# ("y" here), then its column index ("x"); then n_gauss b_params. Returns the parameters in the
+# read_rohsa_parameters layout (centres zero-based) and the header.
+function read_rohsa_checkpoint(path::AbstractString)
+    open(path, "r") do io
+        n_gauss, dim_y, dim_x, evals, iter = (read(io, Int64) for _ in 1:5)
+        f, projg = read(io, Float64), read(io, Float64)
+        raw = Array{Float64}(undef, 3n_gauss, dim_y, dim_x)
+        read!(io, raw)
+        b_params = Vector{Float64}(undef, n_gauss)
+        read!(io, b_params)
+        eof(io) || throw(ArgumentError("$path: trailing bytes; not a ROHSA checkpoint"))
+        params = permutedims(raw, (1, 3, 2))
+        params[2:3:end, :, :] .-= 1.0
+        return params, (; n_gauss, evals, iter, f, projg, b_params)
+    end
+end
+
 function read_rohsa_parameters(path::AbstractString, n_gauss::Int, nx::Int, ny::Int)
+    if endswith(path, ".ckpt")
+        params, h = read_rohsa_checkpoint(path)
+        h.n_gauss == n_gauss && size(params, 2) == nx && size(params, 3) == ny ||
+            throw(ArgumentError("$path holds N=$(h.n_gauss), $(size(params, 2))x$(size(params, 3)); expected N=$n_gauss, $(nx)x$(ny)"))
+        return params
+    end
     data = readdlm_skip_comments(path)
     expected = nx * ny * n_gauss
     size(data, 1) >= expected ||
