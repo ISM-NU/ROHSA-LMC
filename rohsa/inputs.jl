@@ -362,6 +362,11 @@ mask grows by `dilate` channels on each side. Per pixel, 1.4826 x MAD of the rem
 (the median removes a baseline offset). The map is the variance mean over `smooth_px` x `smooth_px` pixels, which also
 fills pixels with fewer than `min_count` line-free voxels; pixels still empty get the map median. NaN and exact-zero
 voxels (mask fill) are never used. `channels` (1-based indices) replaces the mask by a fixed line-free channel list.
+
+Limit: the map is one level per pixel. In combined interferometer + single-dish cubes the noise can change between
+channel blocks (e.g. channels outside the interferometer band hold only the much quieter single-dish data); there the
+line-free channels are not representative of the line channels and the map is too low. Check the map before using it
+with `noise_per_pixel = true`; a per-channel weight needs a ROHSA change.
 """
 function line_free_noise_map(cube::AbstractArray{<:Real,3}; channels=nothing, k::Real=3.0, width::Int=5,
                              dilate::Int=3, min_count::Int=8, smooth_px::Int=9)

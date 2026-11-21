@@ -166,6 +166,23 @@ using Random
         @test count(==(0.0), values(vals)) == 8
         @test vals[(4, 2)] == 0.0          # (y, x) 0-based = mask[3, 5]
         @test vals[(0, 0)] ≈ plain.sigma
+
+        # noise_estimate = line_free: scalar by default, the per-pixel map with noise_per_pixel; held-out pixels
+        # still get 0; bad option values are rejected.
+        lf = wrapper.write_region_products(input_path, header, region, joinpath(dir, "lf"); noise_estimate="line_free")
+        @test isapprox(lf.sigma, 0.3; rtol=0.1)
+        lfvals = unique(parse(Float64, split(l, '\t')[3]) for l in readlines(lf.rms_path)[2:end])
+        @test length(lfvals) == 1
+        lfp = wrapper.write_region_products(input_path, header, region, joinpath(dir, "lfp");
+                                            noise_estimate="line_free", noise_per_pixel=true, holdout_mask=mask_path)
+        pvals = [parse(Float64, split(l, '\t')[3]) for l in readlines(lfp.rms_path)[2:end]]
+        @test count(==(0.0), pvals) == 8
+        @test length(unique(filter(>(0), pvals))) > 1
+        @test all(v -> v == 0 || isapprox(v, 0.3; rtol=0.25), pvals)
+        @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad");
+                                                                 noise_estimate="lstd")
+        @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad2");
+                                                                 noise_per_pixel=true)
     end
 
     rows = [
