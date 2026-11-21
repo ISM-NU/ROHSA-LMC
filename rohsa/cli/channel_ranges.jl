@@ -19,8 +19,8 @@ using VGT
 #
 # --x0/--y0/--size: crop as in the ROHSA configs (crop_x0, crop_y0, crop_size; 1-based; size 0 = whole image).
 # Output FITS (Julia x-y order, 1-based channels; first > last = no data): FIRST, LAST (reliable range), LIVEFIRST,
-# LIVELAST (first/last channel neither 0 nor NaN), W (tile x tile x channel weights; header REF = reference noise K,
-# TILE). Memory: the crop as Float32 (2.7 GB for 2048^2 x 159) plus about 1 GB.
+# LIVELAST (first/last channel neither 0 nor NaN), W (weights per tile and channel pair, pair k = channels k and
+# k+1; header REF = reference noise K, TILE). Memory: the crop as Float32 (2.7 GB for 2048^2 x 159) plus about 1 GB.
 
 Base.include(@__MODULE__, joinpath(@__DIR__, "..", "inputs.jl"))
 

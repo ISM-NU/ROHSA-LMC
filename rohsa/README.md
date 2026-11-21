@@ -103,12 +103,13 @@ ranges (all opt-in in `[input]`; the defaults reproduce earlier runs):
   kept voxels; no 1/w rescaling). Use the same file for a null cube made from
   the data. The line-free noise estimate then uses only these channels.
 - `noise_estimate = "line_free"` with `noise_per_pixel = true`: per-pixel noise
-  from emission-free voxels (exact zeros and NaN are never used).
-  `noise_floor_quantile = 0.25` floors the map at its 25th percentile over the
-  pixels with data: in combined interferometer and single-dish data some pixels'
-  line-free channels are much quieter than their line channels, and without a
-  floor ROHSA would give those pixels' line channels far too much weight. The
-  quantile is a round choice, not a fit; check the floored pixels on a map.
+  from emission-free voxels (exact zeros and NaN are never used; with
+  `"skip"`, only channels in the pixel's range). `noise_floor_quantile` floors
+  the map at that quantile over the pixels with data. Attenuated channels bias
+  the estimate low, so without reliable ranges a high floor (e.g. 0.25) is
+  needed; with them the map has no low tail and a guard (e.g. 0.01) keeps real
+  noise variations. A per-run quantile gives a data cube and its null different
+  floors, so keep it low when they are compared.
 
 Evidence: `docs/validation/rohsa-live-channel-range-2026-11-22.md`.
 

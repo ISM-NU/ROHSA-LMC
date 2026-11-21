@@ -35,10 +35,13 @@ keeps them. `rohsa/cli/channel_ranges.jl` (functions `attenuation_weight`, `reli
 
 - Noise of each pair of adjacent channels per 16 px tile: 1.4826 x MAD / sqrt(2) of their differences over live
   voxels. Differences remove smooth emission, and line slopes only raise the estimate, so emission cannot fake
-  attenuation. Each pair's map is median-filtered over 5 x 5 tiles; channel c takes the smaller of its two pairs.
-  The smaller value is conservative at the boundary between attenuated and full channels: the last attenuated
-  channel reads its own low pair, and the first full one may be dropped too (one good channel lost, never a bad one
-  kept). Pooling along the band was tried first and smeared w across that boundary.
+  attenuation. Each pair's map is median-filtered over 5 x 5 tiles, which also fills tiles with too few differences
+  (a tile a seam crosses can hold only a few pixels of the wider block, exactly where the weight is lowest). Pooling
+  along the band was tried first and smeared w across the boundary between attenuated and full channels.
+- A channel is reliable for a pixel when every pair it forms inside that pixel's live range has w >= 0.8. A pair
+  mixes its two channels, so this is conservative at the boundary: the last attenuated channel fails on its own low
+  pair, and the first full one may be dropped too (one good channel lost, never a bad one kept). Pairs outside the
+  pixel's live range (a neighbouring block's channels) are ignored.
 - w = noise / reference, the reference being the mode of the noise over all tiles and channels: emission only raises
   the estimate and attenuation only lowers it, so the most common value is the clean noise. The median, tried first,
   is pulled up by emission channels and cut good end channels on the synthetic test.
@@ -46,9 +49,10 @@ keeps them. `rohsa/cli/channel_ranges.jl` (functions `attenuation_weight`, `reli
 - One reference for the whole map assumes the clean noise does not change much across it; look at the weight map.
 
 Test (`test/rohsa_noise.jl`): 160 x 48 x 60 cube, block B without channels 1-20, block A's channels 1-20 scaled by
-w(x) = (97 - x) / 60 towards the seam, a bright line in channels 30-50. The tile weights follow the taper within
-0.08, the full channels stay >= 0.8 under the line, the reliable range starts at channel 1 where w >= 0.94 and at
-21 or 22 where w <= 0.68, and the line-free noise restricted to it is unbiased (biased low without it).
+w(x) = (99 - x) / 60 towards a seam that crosses a tile, a bright line in channels 30-50. The tile weights follow the
+taper within 0.08, the full channels stay >= 0.8 under the line, the reliable range starts at channel 1 where
+w >= 0.98 and at 21 or 22 where w <= 0.71 (also in the tile the seam crosses), block B keeps its own range, and the
+line-free noise restricted to the range is unbiased (biased low without it).
 
 ## Checks
 
@@ -71,7 +75,7 @@ w(x) = (97 - x) / 60 towards the seam, a bright line in channels 30-50. The tile
 
    At the corner without data the old fit has amplitudes pinned at 0; with ranges the model column there is 1.006 of
    the injected one, from the smoothing term alone.
-4. Full suite: 329 tests passing (laptop).
+4. Full suite: 345 tests passing (laptop).
 
 Not checked here: real-data runs (the experiment repo records them); spatially varying noise between channel blocks
 inside one pixel's range (needs a per-channel noise, not a range).

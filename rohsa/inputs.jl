@@ -500,39 +500,36 @@ end
 """
     attenuation_weight(cube, first, last; tile=16, smooth=5, ref=nothing, min_pairs=100) -> (w, ref)
 
-Noise of each channel relative to a reference level, per `tile` x `tile` pixel tile: `w[tx, ty, c]`.
+Noise of each pair of adjacent channels relative to a reference level, per `tile` x `tile` pixel tile:
+`w[tx, ty, k]` for channels k and k+1 (k = 1..nv-1).
 
 Why: in a mosaic, channels that only one of two overlapping observing blocks covers ("one-block channels", at the ends
 of the band) can be averaged with the empty block, so signal and noise are both scaled by a weight that falls smoothly
 from 1 to 0 towards the seam. Those voxels are not 0, so `live_channel_ranges` keeps them, but their amplitudes are
 wrong. The noise falls by the same factor, so noise / reference noise measures the weight.
 
-How: for each pair of adjacent channels, 1.4826 x MAD / sqrt(2) of their differences over the live voxels (inside
-each pixel's first..last) of the tile's pixels. Differences remove smooth emission; line slopes can only raise the
-estimate, so emission does not fake attenuation. Channel c gets the smaller of its two pairs (c-1, c) and (c, c+1).
-That is conservative at the boundary between attenuated and full channels: the pair straddling it reads between 0.7
-and 1 of the full noise, so the last attenuated channel always reads its own low pair, and the first full channel can
-read below 0.8 and be dropped too when its neighbour is strongly attenuated (one good channel lost, never a bad one
-kept). No pooling along the band, which would smear the weight across that boundary. Each pair's map is
-median-filtered over `smooth` x `smooth` tiles before the smaller value is taken (NaN-aware; the weight is a smooth
-mosaic weight, and one tile's estimate from a few hundred differences scatters by about 7 %, which the min of two
-unsmoothed values would turn into a bias). `ref` defaults to the mode of the filtered noise
-over all tiles and channels (`noise_mode`): emission only raises the estimate and attenuation only lowers it, so the
-most common value is the unattenuated, emission-free noise; the median is pulled up by emission channels. One
-reference for the whole map assumes the unattenuated noise does not change much across it; check the weight map. Pairs with fewer than `min_pairs` differences in a tile are not used; channels without a
-usable pair stay NaN.
+How: for each pair, 1.4826 x MAD / sqrt(2) of the differences of the two channels over the live voxels (inside each
+pixel's first..last) of the tile's pixels. Differences remove smooth emission; line slopes can only raise the
+estimate, so emission does not fake attenuation. No pooling along the band, which would smear the weight across the
+boundary between attenuated and full channels. Each pair's map is median-filtered over `smooth` x `smooth` tiles
+(NaN-aware; the weight is a smooth mosaic weight, and one tile's estimate from a few hundred differences scatters by
+about 7 %). Pairs with fewer than `min_pairs` differences in a tile are not measured; the filter fills them from the
+neighbouring tiles (a tile a seam crosses can hold few pixels of the block with the wider range, exactly where the
+weight is lowest); pairs with no measured tile within the filter box stay NaN. `ref` defaults to the mode of the
+filtered noise over all tiles and pairs (`noise_mode`): emission only raises the estimate and attenuation only lowers
+it, so the most common value is the unattenuated, emission-free noise (the median is pulled up by emission channels).
+One reference for the whole map assumes the unattenuated noise does not change much across it; check the weight map.
 """
 function attenuation_weight(cube::AbstractArray{<:Real,3}, first::AbstractMatrix{<:Integer},
                             last::AbstractMatrix{<:Integer}; tile::Int=16, smooth::Int=5,
                             ref::Union{Nothing,Real}=nothing, min_pairs::Int=100)
     nx, ny, nv = size(cube)
     ntx, nty = cld(nx, tile), cld(ny, tile)
-    pair = fill(NaN, ntx, nty, nv - 1)   # noise from the differences of channels c and c+1
+    pair = fill(NaN, ntx, nty, nv - 1)
     Threads.@threads for ty in 1:nty
         ys = (ty - 1) * tile + 1:min(ty * tile, ny)
         for tx in 1:ntx
             xs = (tx - 1) * tile + 1:min(tx * tile, nx)
-            # differences d_c = x[c+1] - x[c] for c in 1..nv-1, live pairs only
             dl = [Float64[] for _ in 1:(nv - 1)]
             for y in ys, x in xs
                 a, b = first[x, y], last[x, y]
@@ -541,35 +538,27 @@ function attenuation_weight(cube::AbstractArray{<:Real,3}, first::AbstractMatrix
                     (isfinite(u) && isfinite(v) && u != 0 && v != 0) && push!(dl[c], Float64(v) - Float64(u))
                 end
             end
-            for c in 1:(nv - 1)
-                b = dl[c]
-                length(b) >= min_pairs || continue
-                m = median!(b)
-                b .= abs.(b .- m)
-                pair[tx, ty, c] = 1.4826 * median!(b) / sqrt(2)
+            for k in 1:(nv - 1)
+                d = dl[k]
+                length(d) >= min_pairs || continue
+                m = median!(d)
+                d .= abs.(d .- m)
+                pair[tx, ty, k] = 1.4826 * median!(d) / sqrt(2)
             end
         end
     end
-    # Median filter each pair's map first (so the min below is taken between precise values and adds little bias),
-    # then channel c gets the smaller of its pairs (c-1, c) and (c, c+1).
-    psm = similar(pair)
+    sm = similar(pair)
     hs = smooth ÷ 2
-    Threads.@threads for c in 1:(nv - 1)
+    Threads.@threads for k in 1:(nv - 1)
         vals = Float64[]
         for ty in 1:nty, tx in 1:ntx
             empty!(vals)
             for j in max(ty - hs, 1):min(ty + hs, nty), i in max(tx - hs, 1):min(tx + hs, ntx)
-                v = pair[i, j, c]
+                v = pair[i, j, k]
                 isfinite(v) && push!(vals, v)
             end
-            psm[tx, ty, c] = isfinite(pair[tx, ty, c]) && !isempty(vals) ? median!(vals) : NaN
+            sm[tx, ty, k] = isempty(vals) ? NaN : median!(vals)   # also fills unmeasured tiles
         end
-    end
-    sm = fill(NaN, ntx, nty, nv)
-    for c in 1:nv, ty in 1:nty, tx in 1:ntx
-        a = c > 1 ? psm[tx, ty, c - 1] : NaN
-        b = c < nv ? psm[tx, ty, c] : NaN
-        sm[tx, ty, c] = isfinite(a) && isfinite(b) ? min(a, b) : isfinite(a) ? a : b
     end
     r = ref === nothing ? noise_mode(filter(isfinite, sm)) : Float64(ref)
     return sm ./ r, r
@@ -595,28 +584,32 @@ end
 """
     reliable_channel_ranges(first, last, w; tile=16, wmin=0.8) -> (rfirst, rlast)
 
-Per pixel, the outermost channels of its live range `first..last` whose attenuation weight (its tile's value in `w`,
-from `attenuation_weight`) is at least `wmin`. Channels with NaN weight (too few voxels to measure) count as
-unattenuated. A pixel with no such channel gets an empty range (rfirst = 1, rlast = 0). One-block channels sit at
-the ends of the band, so the reliable channels of a pixel stay contiguous and two maps describe them.
+Per pixel, the outermost channels of its live range `first..last` that are reliable: every pair of adjacent channels
+the channel forms inside the pixel's live range has a weight (its tile's value in `w`, from `attenuation_weight`) of at
+least `wmin`. A pair weight mixes its two channels, so requiring both pairs is conservative at the boundary between
+attenuated and full channels: the last attenuated channel always fails on its own low pair, and the first full one
+can fail too when its neighbour is strongly attenuated (one good channel lost, never a bad one kept). Pairs outside
+the pixel's own live range are ignored (a neighbouring block's channels say nothing about this pixel), and NaN weights
+(nothing measured nearby) count as unattenuated. A pixel with no reliable channel gets an empty range (1, 0). The
+attenuated channels sit at the ends of the band, so the reliable channels of a pixel stay contiguous.
 """
 function reliable_channel_ranges(first::AbstractMatrix{<:Integer}, last::AbstractMatrix{<:Integer},
                                  w::AbstractArray{<:Real,3}; tile::Int=16, wmin::Real=0.8)
     nx, ny = size(first)
     rf = ones(Int, nx, ny)
     rl = zeros(Int, nx, ny)
-    ok(tx, ty, c) = (v = w[tx, ty, c]; !isfinite(v) || v >= wmin)
+    pok(tx, ty, k) = (v = w[tx, ty, k]; !isfinite(v) || v >= wmin)
     Threads.@threads for y in 1:ny
         ty = cld(y, tile)
         for x in 1:nx
             tx = cld(x, tile)
             a, b = first[x, y], last[x, y]
             a > b && continue
-            lo = findfirst(c -> ok(tx, ty, c), a:b)
+            ok(c) = (c == a || pok(tx, ty, c - 1)) && (c == b || pok(tx, ty, c))
+            lo = findfirst(ok, a:b)
             lo === nothing && continue
-            hi = findlast(c -> ok(tx, ty, c), a:b)
             rf[x, y] = a + lo - 1
-            rl[x, y] = a + hi - 1
+            rl[x, y] = a + findlast(ok, a:b) - 1
         end
     end
     return rf, rl
