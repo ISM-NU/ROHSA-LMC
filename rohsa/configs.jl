@@ -27,6 +27,9 @@ const ROHSA_CONFIG_KEYS = Dict(
     "clip_negative" => "clip-negative",
     "noise_map" => "noise-map",
     "holdout_mask" => "holdout-mask",
+    "noise_estimate" => "noise-estimate",
+    "noise_per_pixel" => "noise-per-pixel",
+    "noise_channels" => "noise-channels",
     "n_gauss" => "n-gauss",
     "lambda_amp" => "lambda-amp",
     "lambda_mu" => "lambda-mu",
@@ -110,6 +113,14 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     # the smoothing term only (full-resolution level; coarse levels still average them in). Scoring the fit on
     # them measures how well a configuration predicts spectra it did not fit.
     "holdout-mask" => "",
+    # How the noise level for rms_map.dat is measured. "channel_difference" (default, unchanged): adjacent-channel
+    # MAD / sqrt(2) over every channel of the crop; line slopes raise it, channel correlation lowers it.
+    # "line_free": per-pixel robust std of the voxels without line emission (inputs.jl line_free_noise_map);
+    # ROHSA gets its median unless noise-per-pixel = true, then the map. noise-channels ("1-10,95-106") replaces the
+    # emission mask with fixed line-free channels. A noise-map file wins over both.
+    "noise-estimate" => "channel_difference",
+    "noise-per-pixel" => "false",
+    "noise-channels" => "",
     "auto-config-enabled" => "false",
     "auto-config-profile" => "physical_decomposition",
     "auto-config-max-candidates" => "24",
