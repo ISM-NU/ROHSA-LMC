@@ -477,8 +477,8 @@ end
 
 Per pixel (Julia x-y order), the first and last channel (1-based) that is neither NaN nor exactly 0. A pixel with no
 such channel gets first = 1, last = 0 (an empty range). Call it on the raw cube, before smoothing and clipping
-(clipping makes zeros of negative voxels). Why: the GASKAP LMC cube is a mosaic whose observing blocks cover different
-channel ranges; outside a pixel's range the channels are exactly 0 (fill, not data), and beyond the survey edge the
+(clipping makes zeros of negative voxels). Why: in a mosaic whose observing blocks cover different
+channel ranges, the channels outside a pixel's range can be exactly 0 (fill, not data), and beyond the survey edge the
 whole spectrum is NaN. ROHSA reads these ranges (`filename_range`) and leaves the other channels out of its data term.
 """
 function live_channel_ranges(cube::AbstractArray{<:Real,3})

@@ -218,6 +218,29 @@ using Random
         @test count(==(0.0), lv) == 9
         live = filter(>(0), lv)
         @test count(==(minimum(live)), live) >= length(live) ÷ 5   # about a quarter of the pixels sit on the floor
+        # channel_range_file (rohsa/cli/channel_ranges.jl output, HDUs FIRST and LAST) narrows the live ranges; it
+        # needs missing_data = skip and the crop's size.
+        rf = fill(1, 16, 16); rl = fill(60, 16, 16)
+        rf[1:8, :] .= 31                         # e.g. channels 1-30 attenuated in the left half
+        rng_path = joinpath(dir, "ranges.fits")
+        FITS(rng_path, "w") do f
+            write(f, Int16.(rf); name="FIRST"); write(f, Int16.(rl); name="LAST")
+        end
+        skr = wrapper.write_region_products(holes_path, header, region, joinpath(dir, "skipr"); missing_data="skip",
+                                            channel_range_file=rng_path)
+        rr = Dict((parse(Int, r[1]), parse(Int, r[2])) => (parse(Int, r[3]), parse(Int, r[4]))
+                  for r in split.(readlines(skr.range_path)[2:end], '\t'))
+        @test rr[(0, 0)] == (0, -1)              # no data stays no data
+        @test rr[(5, 5)] == (30, 59)             # narrowed: channels 31-60, 0-based 30-59
+        @test rr[(5, 8)] == (20, 59)             # the file is wider than the cube's own live range there: the cube wins
+        @test_throws ArgumentError wrapper.write_region_products(holes_path, header, region, joinpath(dir, "skipr2");
+                                                                 channel_range_file=rng_path)
+        small = joinpath(dir, "ranges_small.fits")
+        FITS(small, "w") do f
+            write(f, Int16.(rf[1:8, 1:8]); name="FIRST"); write(f, Int16.(rl[1:8, 1:8]); name="LAST")
+        end
+        @test_throws ArgumentError wrapper.write_region_products(holes_path, header, region, joinpath(dir, "skipr3");
+                                                                 missing_data="skip", channel_range_file=small)
         @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad3");
                                                                  missing_data="nan")
         @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad4");

@@ -75,7 +75,7 @@ line-free noise restricted to the range is unbiased (biased low without it).
 
    At the corner without data the old fit has amplitudes pinned at 0; with ranges the model column there is 1.006 of
    the injected one, from the smoothing term alone.
-4. Full suite: 346 tests passing (laptop).
+4. Full suite: 351 tests passing (laptop).
 
 Not checked here: real-data runs (the experiment repo records them); spatially varying noise between channel blocks
 inside one pixel's range (needs a per-channel noise, not a range).
