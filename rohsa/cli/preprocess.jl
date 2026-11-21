@@ -138,6 +138,7 @@ function run_rohsa_preprocessing(opts)
                                                 noise_per_pixel=parse(Bool, opts["noise-per-pixel"]),
                                                 noise_channels=opts["noise-channels"],
                                                 missing_data=opts["missing-data"],
+                                                channel_range_file=opts["channel-range-file"],
                                                 noise_floor_quantile=parse(Float64, opts["noise-floor-quantile"]))
         push!(region_rows, Dict{String, Any}(
             "region" => region.label,
@@ -156,6 +157,7 @@ function run_rohsa_preprocessing(opts)
             "noise_per_pixel" => opts["noise-per-pixel"],
             "noise_floor_quantile" => opts["noise-floor-quantile"],
             "missing_data" => opts["missing-data"],
+            "channel_range_file" => opts["channel-range-file"],
             "fits_path" => region_products.fits_path,
         ))
 

@@ -32,6 +32,7 @@ const ROHSA_CONFIG_KEYS = Dict(
     "noise_channels" => "noise-channels",
     "noise_floor_quantile" => "noise-floor-quantile",
     "missing_data" => "missing-data",
+    "channel_range_file" => "channel-range-file",
     "n_gauss" => "n-gauss",
     "lambda_amp" => "lambda-amp",
     "lambda_mu" => "lambda-mu",
@@ -141,6 +142,10 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     # (`filename_range`); channels outside it carry no data term, and pixels without data get noise 0 (no data term;
     # their parameters follow the smoothing term). Needs the cube in memory (write_region_fits = true).
     "missing-data" => "zero",
+    # With missing_data = "skip": FITS of reliable channel ranges (rohsa/cli/channel_ranges.jl, HDUs FIRST and LAST,
+    # crop-sized) that narrows each pixel's live range, e.g. to drop end-of-band channels a mosaic attenuated. Empty =
+    # the live range (first to last channel neither 0 nor NaN).
+    "channel-range-file" => "",
     "auto-config-enabled" => "false",
     "auto-config-profile" => "physical_decomposition",
     "auto-config-max-candidates" => "24",

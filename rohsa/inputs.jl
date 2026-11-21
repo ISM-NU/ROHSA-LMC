@@ -340,7 +340,11 @@ function box_variance_mean(sig::AbstractMatrix{<:Real}, w::Int)
         x0, x1, y0, y1 = max(x - h, 1), min(x + h, nx), max(y - h, 1), min(y + h, ny)
         n = c[x1 + 1, y1 + 1] - c[x0, y1 + 1] - c[x1 + 1, y0] + c[x0, y0]
         n >= 0.2 * (x1 - x0 + 1) * (y1 - y0 + 1) || continue
-        out[x, y] = sqrt((v[x1 + 1, y1 + 1] - v[x0, y1 + 1] - v[x1 + 1, y0] + v[x0, y0]) / n)
+        # The box sum is a difference of large running sums: on a 2048^2 map it can round to a tiny negative number
+        # (a DomainError in sqrt) or to 0, which would be written as "no data term". Leave such boxes empty.
+        s = (v[x1 + 1, y1 + 1] - v[x0, y1 + 1] - v[x1 + 1, y0] + v[x0, y0]) / n
+        s > 0 || continue
+        out[x, y] = sqrt(s)
     end
     return out
 end
@@ -361,7 +365,8 @@ emission (iterated from the pixel's channel-difference level; the spread include
 mask grows by `dilate` channels on each side. Per pixel, 1.4826 x MAD of the remaining voxels about their median
 (the median removes a baseline offset). The map is the variance mean over `smooth_px` x `smooth_px` pixels, which also
 fills pixels with fewer than `min_count` line-free voxels; pixels still empty get the map median. NaN and exact-zero
-voxels (mask fill) are never used. `channels` (1-based indices) replaces the mask by a fixed line-free channel list.
+voxels (mask fill) are never used. `channels` (1-based indices) replaces the mask by a fixed line-free channel list. `ranges = (first, last)` restricts
+every pixel to its channels first..last.
 
 Limit: the map is one level per pixel. In combined interferometer + single-dish cubes the noise can change between
 channel blocks (e.g. channels outside the interferometer band hold only the much quieter single-dish data); there the
@@ -369,9 +374,12 @@ line-free channels are not representative of the line channels and the map is to
 with `noise_per_pixel = true`; a per-channel weight needs a ROHSA change.
 """
 function line_free_noise_map(cube::AbstractArray{<:Real,3}; channels=nothing, k::Real=3.0, width::Int=5,
-                             dilate::Int=3, min_count::Int=8, smooth_px::Int=9)
+                             dilate::Int=3, min_count::Int=8, smooth_px::Int=9, ranges=nothing)
     nx, ny, nv = size(cube)
     usable(v) = isfinite(v) && v != 0
+    # ranges = (first, last) maps: only channels first[x, y]..last[x, y] are used (the reliable range of a mosaic, see
+    # reliable_channel_ranges; channels outside it can be attenuated and would bias the noise low).
+    inrange(x, y, c) = ranges === nothing || (ranges[1][x, y] <= c <= ranges[2][x, y])
     raw = fill(NaN, nx, ny)
     s0 = robust_channel_difference_noise(cube)  # only the fallback when no pixel has line-free voxels
     begin
@@ -381,7 +389,7 @@ function line_free_noise_map(cube::AbstractArray{<:Real,3}; channels=nothing, k:
             for x in 1:nx
                 for c in 1:nv
                     v = cube[x, y, c]
-                    ok[c] = usable(v)
+                    ok[c] = usable(v) && inrange(x, y, c)
                     sp[c] = ok[c] ? Float64(v) : 0.0
                 end
                 count(ok) >= min_count || (raw[x, y] = NaN; continue)
@@ -489,6 +497,131 @@ function live_channel_ranges(cube::AbstractArray{<:Real,3})
     return first, last
 end
 
+"""
+    attenuation_weight(cube, first, last; tile=16, smooth=5, ref=nothing, min_pairs=100) -> (w, ref)
+
+Noise of each channel relative to a reference level, per `tile` x `tile` pixel tile: `w[tx, ty, c]`.
+
+Why: in a mosaic, channels that only one of two overlapping observing blocks covers ("one-block channels", at the ends
+of the band) can be averaged with the empty block, so signal and noise are both scaled by a weight that falls smoothly
+from 1 to 0 towards the seam. Those voxels are not 0, so `live_channel_ranges` keeps them, but their amplitudes are
+wrong. The noise falls by the same factor, so noise / reference noise measures the weight.
+
+How: for each pair of adjacent channels, 1.4826 x MAD / sqrt(2) of their differences over the live voxels (inside
+each pixel's first..last) of the tile's pixels. Differences remove smooth emission; line slopes can only raise the
+estimate, so emission does not fake attenuation. Channel c gets the smaller of its two pairs (c-1, c) and (c, c+1).
+That is conservative at the boundary between attenuated and full channels: the pair straddling it reads between 0.7
+and 1 of the full noise, so the last attenuated channel always reads its own low pair, and the first full channel can
+read below 0.8 and be dropped too when its neighbour is strongly attenuated (one good channel lost, never a bad one
+kept). No pooling along the band, which would smear the weight across that boundary. Each pair's map is
+median-filtered over `smooth` x `smooth` tiles before the smaller value is taken (NaN-aware; the weight is a smooth
+mosaic weight, and one tile's estimate from a few hundred differences scatters by about 7 %, which the min of two
+unsmoothed values would turn into a bias). `ref` defaults to the mode of the filtered noise
+over all tiles and channels (`noise_mode`): emission only raises the estimate and attenuation only lowers it, so the
+most common value is the unattenuated, emission-free noise; the median is pulled up by emission channels. One
+reference for the whole map assumes the unattenuated noise does not change much across it; check the weight map. Pairs with fewer than `min_pairs` differences in a tile are not used; channels without a
+usable pair stay NaN.
+"""
+function attenuation_weight(cube::AbstractArray{<:Real,3}, first::AbstractMatrix{<:Integer},
+                            last::AbstractMatrix{<:Integer}; tile::Int=16, smooth::Int=5,
+                            ref::Union{Nothing,Real}=nothing, min_pairs::Int=100)
+    nx, ny, nv = size(cube)
+    ntx, nty = cld(nx, tile), cld(ny, tile)
+    pair = fill(NaN, ntx, nty, nv - 1)   # noise from the differences of channels c and c+1
+    Threads.@threads for ty in 1:nty
+        ys = (ty - 1) * tile + 1:min(ty * tile, ny)
+        for tx in 1:ntx
+            xs = (tx - 1) * tile + 1:min(tx * tile, nx)
+            # differences d_c = x[c+1] - x[c] for c in 1..nv-1, live pairs only
+            dl = [Float64[] for _ in 1:(nv - 1)]
+            for y in ys, x in xs
+                a, b = first[x, y], last[x, y]
+                for c in max(a, 1):(min(b, nv) - 1)
+                    u, v = cube[x, y, c], cube[x, y, c + 1]
+                    (isfinite(u) && isfinite(v) && u != 0 && v != 0) && push!(dl[c], Float64(v) - Float64(u))
+                end
+            end
+            for c in 1:(nv - 1)
+                b = dl[c]
+                length(b) >= min_pairs || continue
+                m = median!(b)
+                b .= abs.(b .- m)
+                pair[tx, ty, c] = 1.4826 * median!(b) / sqrt(2)
+            end
+        end
+    end
+    # Median filter each pair's map first (so the min below is taken between precise values and adds little bias),
+    # then channel c gets the smaller of its pairs (c-1, c) and (c, c+1).
+    psm = similar(pair)
+    hs = smooth ÷ 2
+    Threads.@threads for c in 1:(nv - 1)
+        vals = Float64[]
+        for ty in 1:nty, tx in 1:ntx
+            empty!(vals)
+            for j in max(ty - hs, 1):min(ty + hs, nty), i in max(tx - hs, 1):min(tx + hs, ntx)
+                v = pair[i, j, c]
+                isfinite(v) && push!(vals, v)
+            end
+            psm[tx, ty, c] = isfinite(pair[tx, ty, c]) && !isempty(vals) ? median!(vals) : NaN
+        end
+    end
+    sm = fill(NaN, ntx, nty, nv)
+    for c in 1:nv, ty in 1:nty, tx in 1:ntx
+        a = c > 1 ? psm[tx, ty, c - 1] : NaN
+        b = c < nv ? psm[tx, ty, c] : NaN
+        sm[tx, ty, c] = isfinite(a) && isfinite(b) ? min(a, b) : isfinite(a) ? a : b
+    end
+    r = ref === nothing ? noise_mode(filter(isfinite, sm)) : Float64(ref)
+    return sm ./ r, r
+end
+
+# Most common value of positive numbers: peak of the histogram of log10 values (0.005 dex bins between the 1st and 99th
+# percentiles, smoothed over 9 bins).
+function noise_mode(v::AbstractVector{<:Real})
+    lv = log10.(filter(>(0), v))
+    isempty(lv) && return NaN
+    lo, hi = quantile(lv, 0.01), quantile(lv, 0.99)
+    hi > lo || return 10^median(lv)
+    nb = max(10, ceil(Int, (hi - lo) / 0.005))
+    h = zeros(nb)
+    for x in lv
+        lo <= x <= hi || continue
+        h[clamp(floor(Int, (x - lo) / (hi - lo) * nb) + 1, 1, nb)] += 1
+    end
+    hs = [sum(h[max(i - 4, 1):min(i + 4, nb)]) for i in 1:nb]
+    return 10^(lo + (argmax(hs) - 0.5) * (hi - lo) / nb)
+end
+
+"""
+    reliable_channel_ranges(first, last, w; tile=16, wmin=0.8) -> (rfirst, rlast)
+
+Per pixel, the outermost channels of its live range `first..last` whose attenuation weight (its tile's value in `w`,
+from `attenuation_weight`) is at least `wmin`. Channels with NaN weight (too few voxels to measure) count as
+unattenuated. A pixel with no such channel gets an empty range (rfirst = 1, rlast = 0). One-block channels sit at
+the ends of the band, so the reliable channels of a pixel stay contiguous and two maps describe them.
+"""
+function reliable_channel_ranges(first::AbstractMatrix{<:Integer}, last::AbstractMatrix{<:Integer},
+                                 w::AbstractArray{<:Real,3}; tile::Int=16, wmin::Real=0.8)
+    nx, ny = size(first)
+    rf = ones(Int, nx, ny)
+    rl = zeros(Int, nx, ny)
+    ok(tx, ty, c) = (v = w[tx, ty, c]; !isfinite(v) || v >= wmin)
+    Threads.@threads for y in 1:ny
+        ty = cld(y, tile)
+        for x in 1:nx
+            tx = cld(x, tile)
+            a, b = first[x, y], last[x, y]
+            a > b && continue
+            lo = findfirst(c -> ok(tx, ty, c), a:b)
+            lo === nothing && continue
+            hi = findlast(c -> ok(tx, ty, c), a:b)
+            rf[x, y] = a + lo - 1
+            rl[x, y] = a + hi - 1
+        end
+    end
+    return rf, rl
+end
+
 # Range file for ROHSA (mod_inout.f90 read_range): header "ny nx", rows "y x first last", all 0-based like the cube and
 # rms files; an empty range is written as "0 -1".
 function write_range_map(path::AbstractString, first::AbstractMatrix{<:Integer}, last::AbstractMatrix{<:Integer})
@@ -503,6 +636,20 @@ function write_range_map(path::AbstractString, first::AbstractMatrix{<:Integer},
         end
     end
     return path
+end
+
+# FITS written by rohsa/cli/channel_ranges.jl: HDUs FIRST and LAST, 1-based channels, crop-sized (Julia x-y order);
+# first > last = no data.
+function read_channel_range_file(path::AbstractString, region)
+    f = FITS(path)
+    try
+        rf, rl = Int.(read(f["FIRST"])), Int.(read(f["LAST"]))
+        size(rf) == (region.nx, region.ny) ||
+            throw(ArgumentError("channel_range_file $path is $(size(rf)), the crop is $((region.nx, region.ny))"))
+        return rf, rl
+    finally
+        close(f)
+    end
 end
 
 function read_noise_map(path::AbstractString, region)
@@ -529,7 +676,8 @@ function write_region_products(input::AbstractString, header, region::InputRegio
                                noise_per_pixel::Bool=false,
                                noise_channels::AbstractString="",
                                missing_data::AbstractString="zero",
-                               noise_floor_quantile::Real=0.0)
+                               noise_floor_quantile::Real=0.0,
+                               channel_range_file::AbstractString="")
     noise_estimate in ("channel_difference", "line_free") ||
         throw(ArgumentError("noise_estimate `$noise_estimate`: expected channel_difference or line_free"))
     missing_data in ("zero", "skip") ||
@@ -537,6 +685,8 @@ function write_region_products(input::AbstractString, header, region::InputRegio
     0 <= noise_floor_quantile < 1 ||
         throw(ArgumentError("noise_floor_quantile must be in [0, 1), got $noise_floor_quantile"))
     skip_missing = missing_data == "skip"
+    isempty(channel_range_file) || skip_missing ||
+        throw(ArgumentError("channel_range_file needs missing_data = skip"))
     mkpath(region_dir)
     kernel = spectral_kernel_weights(spectral_kernel)
     kernel_sigma_chan = spectral_kernel_sigma(kernel)
@@ -561,11 +711,19 @@ function write_region_products(input::AbstractString, header, region::InputRegio
         if skip_missing
             # Raw cube: smoothing would spread data into the fill channels and clipping would add zeros.
             first, last = live_channel_ranges(cube)
+            if !isempty(channel_range_file)
+                # Reliable ranges made beforehand (rohsa/cli/channel_ranges.jl), e.g. from the data for a null cube
+                # too; never wider than this cube's own live range.
+                rf, rl = read_channel_range_file(channel_range_file, region)
+                first .= max.(first, rf)
+                last .= min.(last, rl)
+            end
             nodata = first .> last
             range_path = write_range_map(joinpath(region_dir, "live_channel_range.dat"), first, last)
         end
         if noise_estimate == "line_free"
-            sigma_map = line_free_noise_map(cube; channels=parse_channel_ranges(noise_channels, size(cube, 3)))
+            sigma_map = line_free_noise_map(cube; channels=parse_channel_ranges(noise_channels, size(cube, 3)),
+                                            ranges=skip_missing ? (first, last) : nothing)
             if noise_floor_quantile > 0
                 # Floor at a quantile of the map over the pixels with data (reason: rohsa/README.md, noise options).
                 vals = nodata === nothing ? vec(sigma_map) : sigma_map[.!nodata]

@@ -26,6 +26,30 @@ weighted blocks with different noise. ROHSA's cost had no per-channel weight.
   `noise_floor_quantile` floors the per-pixel line-free map. Both off by default. The line-free estimator already
   skipped exact zeros and NaN; a test now covers a zeroed channel block.
 
+## Reliable range: attenuated end-of-band channels
+
+Near seams, the channels that only one of two overlapping blocks covers can be averaged with the empty block: signal
+and noise are scaled by a weight w that falls smoothly towards the seam, and the voxels are not 0, so the live range
+keeps them. `rohsa/cli/channel_ranges.jl` (functions `attenuation_weight`, `reliable_channel_ranges` in
+`rohsa/inputs.jl`) measures w and writes the reliable range for `channel_range_file`:
+
+- Noise of each pair of adjacent channels per 16 px tile: 1.4826 x MAD / sqrt(2) of their differences over live
+  voxels. Differences remove smooth emission, and line slopes only raise the estimate, so emission cannot fake
+  attenuation. Each pair's map is median-filtered over 5 x 5 tiles; channel c takes the smaller of its two pairs.
+  The smaller value is conservative at the boundary between attenuated and full channels: the last attenuated
+  channel reads its own low pair, and the first full one may be dropped too (one good channel lost, never a bad one
+  kept). Pooling along the band was tried first and smeared w across that boundary.
+- w = noise / reference, the reference being the mode of the noise over all tiles and channels: emission only raises
+  the estimate and attenuation only lowers it, so the most common value is the clean noise. The median, tried first,
+  is pulled up by emission channels and cut good end channels on the synthetic test.
+- Kept: outermost live channels with w >= 0.8 (at most a 20 % amplitude error in kept voxels), no 1/w rescaling.
+- One reference for the whole map assumes the clean noise does not change much across it; look at the weight map.
+
+Test (`test/rohsa_noise.jl`): 160 x 48 x 60 cube, block B without channels 1-20, block A's channels 1-20 scaled by
+w(x) = (97 - x) / 60 towards the seam, a bright line in channels 30-50. The tile weights follow the taper within
+0.08, the full channels stay >= 0.8 under the line, the reliable range starts at channel 1 where w >= 0.94 and at
+21 or 22 where w <= 0.68, and the line-free noise restricted to it is unbiased (biased low without it).
+
 ## Checks
 
 1. Byte identity, one-off (laptop, gfortran, 2 OpenMP threads): a 32 x 32 x 60 synthetic cube (two spatially varying

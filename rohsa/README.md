@@ -93,6 +93,15 @@ ranges (all opt-in in `[input]`; the defaults reproduce earlier runs):
   multiresolution levels average each channel over the children observed in
   it and take the union of their ranges (mod_functions.f90 `mean_array_live`).
   The default `"zero"` writes NaN as 0 and fits those zeros as data.
+- `channel_range_file` (with `"skip"`): reliable ranges made beforehand by
+  `rohsa/cli/channel_ranges.jl`. In a mosaic, end-of-band channels that only one
+  of two overlapping blocks covers can be averaged with the empty block, so
+  signal and noise fade towards the seam while staying nonzero. The tool
+  measures that weight w from the noise (adjacent-channel differences per
+  16 px tile, relative to the most common noise level) and keeps, per pixel,
+  the outermost live channels with w >= 0.8 (at most a 20 % amplitude error in
+  kept voxels; no 1/w rescaling). Use the same file for a null cube made from
+  the data. The line-free noise estimate then uses only these channels.
 - `noise_estimate = "line_free"` with `noise_per_pixel = true`: per-pixel noise
   from emission-free voxels (exact zeros and NaN are never used).
   `noise_floor_quantile = 0.25` floors the map at its 25th percentile over the
