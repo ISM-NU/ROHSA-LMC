@@ -167,6 +167,13 @@ using Random
         @test vals[(4, 2)] == 0.0          # (y, x) 0-based = mask[3, 5]
         @test vals[(0, 0)] ≈ plain.sigma
 
+        # Default output unchanged by the new options: the scalar from the channel-difference estimate, written by the
+        # scalar writer byte for byte.
+        @test plain.sigma == wrapper.robust_channel_difference_noise(noise)
+        ref_rms = joinpath(dir, "ref_rms.dat")
+        wrapper.write_rms_map(ref_rms, 16, 16, plain.sigma)
+        @test read(ref_rms) == read(plain.rms_path)
+
         # noise_estimate = line_free: scalar by default, the per-pixel map with noise_per_pixel; held-out pixels
         # still get 0; bad option values are rejected.
         lf = wrapper.write_region_products(input_path, header, region, joinpath(dir, "lf"); noise_estimate="line_free")
