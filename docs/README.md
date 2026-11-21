@@ -5,6 +5,7 @@ Status: active guidance, validation evidence, historical note, or archive.
 - `../README.md` - setup and commands. Active guidance.
 - `../rohsa/README.md` - ROHSA wrapper workflow, source layout, config entrypoint. Active guidance.
 - `../hpc/irgetas/README.md` - Irgetas runbook for ROHSA, layer cubes and de-rotation. Active guidance.
+- `validation/rohsa-live-channel-range-2026-11-22.md` - live channel range per pixel (`missing_data = "skip"`), noise 0 for pixels without data, floored per-pixel line-free noise: design, byte-identity with the previous build, synthetic recovery. Validation evidence.
 - `validation/rohsa-deterministic-openmp-2026-11-13.md` - OpenMP sums in a fixed order (output independent of thread count), fused data term; speed and ±1-ulp ensemble equivalence. Validation evidence.
 - `validation/rohsa-openmp-parity-2026-10-17.md` - parity and speed check of the first OpenMP patch. Validation evidence, thread-count part superseded.
 - `validation/rohsa-laptop-full-cube-design-2026-06-26.md` - design of an out-of-core full-cube ROHSA-compatible path for laptops. Active design, experimental.

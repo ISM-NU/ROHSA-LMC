@@ -190,6 +190,38 @@ using Random
                                                                  noise_estimate="lstd")
         @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad2");
                                                                  noise_per_pixel=true)
+        @test plain.range_path == "" && lfp.range_path == ""   # no range file unless missing_data = skip
+
+        # missing_data = skip: live channel ranges from the raw cube go to live_channel_range.dat, pixels without data
+        # get noise 0 in rms_map.dat (scalar or per-pixel noise alike); the line-free map can be floored.
+        holes = copy(noise)
+        holes[1:3, 1:3, :] .= NaN32          # beyond the survey edge
+        holes[9:end, :, 1:20] .= 0.0f0       # an observing block without channels 1-20
+        holes_path = joinpath(dir, "holes.fits")
+        FITS(holes_path, "w") do f
+            write(f, holes, header=header)
+        end
+        sk = wrapper.write_region_products(holes_path, header, region, joinpath(dir, "skip"); missing_data="skip")
+        @test isfile(sk.range_path) && basename(sk.range_path) == "live_channel_range.dat"
+        rows = split.(readlines(sk.range_path)[2:end], '\t')
+        rng_of = Dict((parse(Int, r[1]), parse(Int, r[2])) => (parse(Int, r[3]), parse(Int, r[4])) for r in rows)
+        @test rng_of[(0, 0)] == (0, -1)            # (y, x) 0-based: holes[1, 1] has no data
+        @test rng_of[(0, 8)] == (20, 59)           # holes[9, 1]: channels 21-60, 0-based 20-59
+        @test rng_of[(5, 5)] == (0, 59)
+        skv = Dict((parse(Int, a), parse(Int, b)) => parse(Float64, c)
+                   for (a, b, c) in split.(readlines(sk.rms_path)[2:end], '\t'))
+        @test count(==(0.0), values(skv)) == 9 && skv[(2, 2)] == 0.0
+        @test all(v -> v == 0 || v == sk.sigma, values(skv))
+        skl = wrapper.write_region_products(holes_path, header, region, joinpath(dir, "skipl"); missing_data="skip",
+                                            noise_estimate="line_free", noise_per_pixel=true, noise_floor_quantile=0.25)
+        lv = [parse(Float64, split(l, '\t')[3]) for l in readlines(skl.rms_path)[2:end]]
+        @test count(==(0.0), lv) == 9
+        live = filter(>(0), lv)
+        @test count(==(minimum(live)), live) >= length(live) ÷ 5   # about a quarter of the pixels sit on the floor
+        @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad3");
+                                                                 missing_data="nan")
+        @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad4");
+                                                                 noise_floor_quantile=1.0)
     end
 
     rows = [
@@ -235,6 +267,11 @@ using Random
         @test occursin("maxiter_last = 5000", text)
         @test occursin("checkpoint_at = 100,800", text)
         @test occursin("checkpoint_prefix = '$(joinpath(dir, "checkpoints", "rohsa_n6"))'", text)
+        # Live channel range file: emitted only when given.
+        @test !occursin("filename_range", text)
+        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, 6, override_opts;
+                                       range_path=joinpath(dir, "live_channel_range.dat"))
+        @test occursin("filename_range = '$(joinpath(dir, "live_channel_range.dat"))'", read(params_path, String))
     end
 
     # Per-pixel noise map for ROHSA: header "ny nx", rows "y x sigma" (0-based), bad pixels written as 0

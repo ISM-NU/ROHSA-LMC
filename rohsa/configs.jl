@@ -30,6 +30,8 @@ const ROHSA_CONFIG_KEYS = Dict(
     "noise_estimate" => "noise-estimate",
     "noise_per_pixel" => "noise-per-pixel",
     "noise_channels" => "noise-channels",
+    "noise_floor_quantile" => "noise-floor-quantile",
+    "missing_data" => "missing-data",
     "n_gauss" => "n-gauss",
     "lambda_amp" => "lambda-amp",
     "lambda_mu" => "lambda-mu",
@@ -128,6 +130,17 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     "noise-estimate" => "channel_difference",
     "noise-per-pixel" => "false",
     "noise-channels" => "",
+    # Floor of the per-pixel line-free map at this quantile of its values over the pixels with data (0 = no floor).
+    # In mosaics, some pixels hold much quieter data in their line-free channels (e.g. single-dish only at the band
+    # edges) than in their line channels; the line-free estimate is then too low there and ROHSA would give those
+    # pixels' line channels far too much weight. Used only with noise_estimate = "line_free", noise_per_pixel = true.
+    "noise-floor-quantile" => "0",
+    # How missing data reach ROHSA. "zero" (default, unchanged): NaN voxels are written as 0 and fitted like data, so
+    # a pixel beyond the survey edge is fitted as a zero spectrum. "skip": each pixel's live channel range (first to
+    # last channel that is neither 0 nor NaN, from the raw cube) goes to ROHSA in live_channel_range.dat
+    # (`filename_range`); channels outside it carry no data term, and pixels without data get noise 0 (no data term;
+    # their parameters follow the smoothing term). Needs the cube in memory (write_region_fits = true).
+    "missing-data" => "zero",
     "auto-config-enabled" => "false",
     "auto-config-profile" => "physical_decomposition",
     "auto-config-max-candidates" => "24",
@@ -203,7 +216,8 @@ function checkpoint_evals(value::AbstractString)
     return sort(unique(v))
 end
 
-function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_path, n_gauss::Int, opts)
+function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_path, n_gauss::Int, opts;
+                                range_path::AbstractString="")
     open(path, "w") do io
         # Upstream ROHSA consumes a Fortran namelist. Numeric real values are
         # emitted with d0 exponents to match the original examples.
@@ -240,6 +254,8 @@ function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_pa
         if parse_bool(get(opts, "regul-grad-adjoint", "false"))
             println(io, "    ,regul_grad_adjoint = .true.")
         end
+        # Live channel range file (missing_data = "skip"); emitted only when set, so older binaries still read the namelist.
+        isempty(range_path) || println(io, "    ,filename_range = '$(abspath(range_path))'")
         maxiter_last = parse(Int, get(opts, "maxiter-last", "0"))
         maxiter_last > 0 && println(io, "    ,maxiter_last = $maxiter_last")
         ckpt = checkpoint_evals(get(opts, "checkpoint-at", ""))

@@ -136,7 +136,9 @@ function run_rohsa_preprocessing(opts)
                                                 holdout_mask=opts["holdout-mask"],
                                                 noise_estimate=opts["noise-estimate"],
                                                 noise_per_pixel=parse(Bool, opts["noise-per-pixel"]),
-                                                noise_channels=opts["noise-channels"])
+                                                noise_channels=opts["noise-channels"],
+                                                missing_data=opts["missing-data"],
+                                                noise_floor_quantile=parse(Float64, opts["noise-floor-quantile"]))
         push!(region_rows, Dict{String, Any}(
             "region" => region.label,
             "x0" => region.x0,
@@ -152,6 +154,8 @@ function run_rohsa_preprocessing(opts)
             "holdout_mask" => opts["holdout-mask"],
             "noise_estimate_method" => opts["noise-estimate"],
             "noise_per_pixel" => opts["noise-per-pixel"],
+            "noise_floor_quantile" => opts["noise-floor-quantile"],
+            "missing_data" => opts["missing-data"],
             "fits_path" => region_products.fits_path,
         ))
 

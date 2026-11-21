@@ -464,6 +464,47 @@ function write_rms_map(rms_path::AbstractString, sigma::AbstractMatrix{<:Real})
     return rms_path
 end
 
+"""
+    live_channel_ranges(cube) -> (first, last)
+
+Per pixel (Julia x-y order), the first and last channel (1-based) that is neither NaN nor exactly 0. A pixel with no
+such channel gets first = 1, last = 0 (an empty range). Call it on the raw cube, before smoothing and clipping
+(clipping makes zeros of negative voxels). Why: the GASKAP LMC cube is a mosaic whose observing blocks cover different
+channel ranges; outside a pixel's range the channels are exactly 0 (fill, not data), and beyond the survey edge the
+whole spectrum is NaN. ROHSA reads these ranges (`filename_range`) and leaves the other channels out of its data term.
+"""
+function live_channel_ranges(cube::AbstractArray{<:Real,3})
+    nx, ny, nv = size(cube)
+    first = ones(Int, nx, ny)
+    last = zeros(Int, nx, ny)
+    live(v) = isfinite(v) && v != 0
+    Threads.@threads for y in 1:ny
+        for x in 1:nx
+            a = findfirst(c -> live(cube[x, y, c]), 1:nv)
+            a === nothing && continue
+            first[x, y] = a
+            last[x, y] = findlast(c -> live(cube[x, y, c]), 1:nv)
+        end
+    end
+    return first, last
+end
+
+# Range file for ROHSA (mod_inout.f90 read_range): header "ny nx", rows "y x first last", all 0-based like the cube and
+# rms files; an empty range is written as "0 -1".
+function write_range_map(path::AbstractString, first::AbstractMatrix{<:Integer}, last::AbstractMatrix{<:Integer})
+    nx, ny = size(first)
+    size(last) == (nx, ny) || throw(ArgumentError("first and last maps differ in size"))
+    open(path, "w") do io
+        println(io, "$(ny)\t$(nx)")
+        for y in 1:ny, x in 1:nx
+            a, b = first[x, y], last[x, y]
+            a > b && ((a, b) = (1, 0))
+            @printf(io, "%d\t%d\t%d\t%d\n", y - 1, x - 1, a - 1, b - 1)
+        end
+    end
+    return path
+end
+
 function read_noise_map(path::AbstractString, region)
     m = Float64.(VGT.read_fits_image(path))
     size(m) == (region.nx, region.ny) ||
@@ -486,9 +527,16 @@ function write_region_products(input::AbstractString, header, region::InputRegio
                                holdout_mask::AbstractString="",
                                noise_estimate::AbstractString="channel_difference",
                                noise_per_pixel::Bool=false,
-                               noise_channels::AbstractString="")
+                               noise_channels::AbstractString="",
+                               missing_data::AbstractString="zero",
+                               noise_floor_quantile::Real=0.0)
     noise_estimate in ("channel_difference", "line_free") ||
         throw(ArgumentError("noise_estimate `$noise_estimate`: expected channel_difference or line_free"))
+    missing_data in ("zero", "skip") ||
+        throw(ArgumentError("missing_data `$missing_data`: expected zero or skip"))
+    0 <= noise_floor_quantile < 1 ||
+        throw(ArgumentError("noise_floor_quantile must be in [0, 1), got $noise_floor_quantile"))
+    skip_missing = missing_data == "skip"
     mkpath(region_dir)
     kernel = spectral_kernel_weights(spectral_kernel)
     kernel_sigma_chan = spectral_kernel_sigma(kernel)
@@ -505,12 +553,25 @@ function write_region_products(input::AbstractString, header, region::InputRegio
     # stream directly to the ROHSA text format to avoid a second full cube in memory.
     # With the cube in memory the input is written as binary.
     cube = retain_cube || write_region_fits ? read_region_cube(input, region) : nothing
+    range_path = ""
+    nodata = nothing
     if cube !== nothing
         sigma = robust_channel_difference_noise(cube)  # raw cube, before clipping
         sigma_map = nothing
+        if skip_missing
+            # Raw cube: smoothing would spread data into the fill channels and clipping would add zeros.
+            first, last = live_channel_ranges(cube)
+            nodata = first .> last
+            range_path = write_range_map(joinpath(region_dir, "live_channel_range.dat"), first, last)
+        end
         if noise_estimate == "line_free"
             sigma_map = line_free_noise_map(cube; channels=parse_channel_ranges(noise_channels, size(cube, 3)))
-            sigma = median(sigma_map)
+            if noise_floor_quantile > 0
+                # Floor at a quantile of the map over the pixels with data (reason: rohsa/README.md, noise options).
+                vals = nodata === nothing ? vec(sigma_map) : sigma_map[.!nodata]
+                isempty(vals) || (sigma_map .= max.(sigma_map, quantile(vals, noise_floor_quantile)))
+            end
+            sigma = median(nodata === nothing ? sigma_map : sigma_map[.!nodata])
         end
         if length(kernel) > 1
             cube = smooth_spectra(cube, kernel)
@@ -526,6 +587,8 @@ function write_region_products(input::AbstractString, header, region::InputRegio
             throw(ArgumentError("spectral_kernel needs the cube in memory; set write_region_fits = true"))
         noise_estimate == "channel_difference" ||
             throw(ArgumentError("noise_estimate = line_free needs the cube in memory; set write_region_fits = true"))
+        skip_missing &&
+            throw(ArgumentError("missing_data = skip needs the cube in memory; set write_region_fits = true"))
         sigma_map = nothing
         rohsa_input_path = write_streamed_cube_dat(input, joinpath(region_dir, string(region.label, ".dat")), region;
                                                     clip_negative=clip_negative)
@@ -536,7 +599,7 @@ function write_region_products(input::AbstractString, header, region::InputRegio
     per_pixel = noise_per_pixel && sigma_map !== nothing
     noise_per_pixel && sigma_map === nothing && isempty(noise_map) &&
         throw(ArgumentError("noise_per_pixel = true needs noise_estimate = line_free (or a noise_map)"))
-    if isempty(noise_map) && isempty(holdout_mask) && !per_pixel
+    if isempty(noise_map) && isempty(holdout_mask) && !per_pixel && !skip_missing
         write_rms_map(rms_path, region.nx, region.ny, sigma)
     else
         m = !isempty(noise_map) ? read_noise_map(noise_map, region) :
@@ -544,7 +607,9 @@ function write_region_products(input::AbstractString, header, region::InputRegio
         good = filter(v -> isfinite(v) && v > 0, m)
         sigma = isempty(good) ? sigma : median(good)  # reported level; ROHSA uses the map
         isempty(holdout_mask) || (m[read_noise_map(holdout_mask, region) .!= 0] .= 0.0)
+        # Pixels without data: noise 0 = no data term (mod_optimize.f90); the line-free map fills them otherwise.
+        nodata === nothing || (m[nodata] .= 0.0)
         write_rms_map(rms_path, m)
     end
-    return (; fits_path, rohsa_input_path, rms_path, sigma, header=region_header, cube, kernel_sigma_chan)
+    return (; fits_path, rohsa_input_path, rms_path, range_path, sigma, header=region_header, cube, kernel_sigma_chan)
 end
