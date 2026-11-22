@@ -30,7 +30,8 @@ elif [ "$crop" -gt 0 ] && [ "$crop" -le 1024 ]; then
 elif [ "$crop" -gt 0 ] && [ "$crop" -le 2048 ]; then
     cpus=32
     if [ "$n_gauss" -le 6 ]; then memory="100G"; time_limit="1-00:00:00"
-    else memory="140G"; time_limit="1-12:00:00"; fi
+    elif [ "$n_gauss" -le 8 ]; then memory="140G"; time_limit="1-12:00:00"
+    else memory="120G"; time_limit="08:00:00"; fi  # N = 16 measured: 89 GB, under 4 h
 else
     # Whole cube (crop_size = 0), e.g. the 3624^2 foreground cube.
     cpus=32; memory="180G"; time_limit="3-00:00:00"
