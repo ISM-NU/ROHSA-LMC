@@ -24,7 +24,7 @@ export doppler_temperature_k, fwhm_doppler_temperature, rohsa_component_rows, ro
 export write_rohsa_decomposition_products
 export ROHSA_LAYER_NAMES, ROHSA_PHASE_NAMES, velocity_layer_weights, reference_centroid_channels
 export build_layer_cubes, gaussian_phase_weights, build_phase_cubes
-export derotation_offset_grid, derotate_cube, derotated_header, noise_sigma_map, fill_padding!
+export derotation_offset_grid, derotate_cube, blank_footprint, derotated_header, noise_sigma_map, fill_padding!
 export sanitize_reference, clamp_reference
 
 end

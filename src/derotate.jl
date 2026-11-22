@@ -51,6 +51,13 @@ de-rotation is meant to remove). NaN cannot stay either: VGT weights each
 window by the intensity of its centre pixel, so a NaN centre would poison that
 pixel's Stokes sums.
 
+`blank` (an nx × ny Bool map, see `blank_footprint`) marks pixels without data:
+their output spectra are NaN whatever the input holds there. It is for inputs
+that already lost their blanks, such as a ROHSA crop where `clean_voxel` wrote
+zero, and for model cubes, whose zeros outside the survey are not data. Pair it
+with the same mask in `fill_padding!` (`observed .& .!blank`) so the padding does
+not refill them. Without `blank`, only spectra that are NaN throughout stay NaN.
+
 `integer_shift=true` rounds every shift to a whole channel (exact copies, at
 most half a channel of misalignment). Use it for cubes whose noise is not
 Gaussian, such as our data with negative values clipped: a fractional shift
@@ -60,9 +67,10 @@ fractional part repeats every channel of disk velocity, so the share of pixels
 above the VGT threshold would vary in bands along the disk velocity contours.
 """
 function derotate_cube(cube::AbstractArray{<:Real, 3}, reference::AbstractMatrix; margin::Int=16,
-                       integer_shift::Bool=false)
+                       integer_shift::Bool=false, blank::Union{Nothing, AbstractMatrix{Bool}}=nothing)
     nx, ny, nv = size(cube)
     size(reference) == (nx, ny) || throw(ArgumentError("reference must be $nx × $ny"))
+    blank === nothing || size(blank) == (nx, ny) || throw(ArgumentError("blank must be $nx × $ny"))
     omin, nout = derotation_offset_grid(reference, nv)
     len = nextprod((2, 3, 5), nout + 2margin)
     out = fill(NaN32, nx, ny, nout)
@@ -78,6 +86,7 @@ function derotate_cube(cube::AbstractArray{<:Real, 3}, reference::AbstractMatrix
         buf, spec = bufs[tid], specs[tid]
         @inbounds for x in 1:nx
             isfinite(reference[x, y]) || continue
+            blank !== nothing && blank[x, y] && continue
             ref = clamp_reference(reference[x, y], nv)
             integer_shift && (ref = round(ref))
             any(isfinite, view(cube, x, y, :)) || continue
@@ -110,6 +119,28 @@ function derotate_cube(cube::AbstractArray{<:Real, 3}, reference::AbstractMatrix
         end
     end
     return out, omin
+end
+
+"""
+    blank_footprint(cube; zero_is_blank=false) -> Matrix{Bool}
+
+True where the spectrum of `cube` (x, y, v) holds no data: every voxel is
+non-finite or, with `zero_is_blank`, exactly zero. Use `zero_is_blank=true` on a
+ROHSA crop of observed data, where `clean_voxel` wrote NaN as 0 and the noise makes
+an all-zero spectrum impossible inside the survey. Do not use it on a model or
+layer cube: a pixel without emission is zero there too.
+"""
+function blank_footprint(cube::AbstractArray{<:Real, 3}; zero_is_blank::Bool=false)
+    nx, ny, _ = size(cube)
+    blank = fill(false, nx, ny)   # not a BitMatrix: threads write neighbouring entries
+    Threads.@threads for y in 1:ny
+        @inbounds for x in 1:nx
+            spectrum = view(cube, x, y, :)
+            blank[x, y] = zero_is_blank ? all(v -> !isfinite(v) || v == 0, spectrum) :
+                                          !any(isfinite, spectrum)
+        end
+    end
+    return blank
 end
 
 """

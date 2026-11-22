@@ -119,6 +119,11 @@ sbatch --export=ALL,ROHSA_REPO=$PWD,REFERENCE=<reference_velocity_channels.fits>
 `reference_velocity_channels.fits` comes from the layer step. Options of the
 underlying CLI are in the header of `rohsa/cli/derotate_cube.jl`.
 
+Options go in `CUBES` before the `name=cube.fits` pairs. `--blank-from data` keeps
+the survey footprint of the cube `data` (all-zero or non-finite spectra) NaN in
+every output cube; without it, ROHSA crops and model cubes that hold zero outside
+the survey de-rotate to zero there.
+
 ## Citations
 
 Work using ROHSA cites Marchal et al. 2019, A&A 626, A101. NU asks users to
