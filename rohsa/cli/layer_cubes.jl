@@ -56,7 +56,8 @@ function rohsa_scalar_noise(region_dir)
 end
 
 function write_vgt_config(path, input_file, output_dir, noise, ny_chunks)
-    cfg = TOML.parsefile(joinpath(dirname(@__DIR__), "..", "config.example.toml"))
+    # The template is the VGT package's example config; this repo has none of its own.
+    cfg = TOML.parsefile(joinpath(pkgdir(VGT), "config.example.toml"))
     cfg["input"]["input_file"] = input_file
     cfg["input"]["output_dir"] = output_dir
     cfg["input"]["keep_intermediate_chunks"] = false
