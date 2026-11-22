@@ -234,9 +234,9 @@ Shifting those spectra by such amounts would create structure along the jumps.
 Where the model column `column` (sum over channels) is below `lo_frac` of its
 99th percentile the reference becomes the median disk velocity of the trusted
 area; above `hi_frac` it is kept; in between the two are blended, so the shift
-never jumps. On the LMC 2048² window the reference stays within 30–115
-channels wherever the column exceeds 0.1% of its 99th percentile (83% of the
-pixels) and reaches −4224…+7936 channels only where there is no emission.
+never jumps. On real cubes the raw centroid stays in a narrow channel band
+where there is emission and runs to thousands of channels outside the cube's
+range only where there is none.
 """
 function sanitize_reference(reference::AbstractMatrix, column::AbstractMatrix, nv::Integer;
                             lo_frac::Real=0.0005, hi_frac::Real=0.002, smooth_px::Real=5.0)
