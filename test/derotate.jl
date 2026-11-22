@@ -44,6 +44,41 @@ using Test
     @test isapprox(std(Float64.(vec(noisy))), 0.25; rtol=0.1)
     @test minimum(RohsaLMC.fill_padding!(fill(NaN32, 64, 64, 2), trues(64, 64); sigma=fill(0.25, 64, 64), clip=true)) == 0
 
+    # Blanks stay blanks. A survey footprint (NaN block) survives the de-rotation and both
+    # padding modes; zeros written by clean_voxel are only blanks when asked for.
+    nx, ny, nvb = 8, 6, 40
+    bcube = [1 + 0.1 * sin(0.7x + 1.3y + 0.5k) for x in 1:nx, y in 1:ny, k in 1:nvb]   # noisy data crop
+    bcube[1:3, :, :] .= NaN                                                             # outside the survey
+    bcube[5, 4, 7] = NaN                                                                # one blank voxel
+    bref = fill(15.5, nx, ny); bref[:, 4:6] .= 20.0
+    footprint = RohsaLMC.blank_footprint(bcube)
+    @test footprint == [x <= 3 for x in 1:nx, y in 1:ny]
+    zcube = replace(bcube, NaN => 0.0)                                                  # what clean_voxel wrote
+    @test !any(RohsaLMC.blank_footprint(zcube))
+    @test RohsaLMC.blank_footprint(zcube; zero_is_blank=true) == footprint
+    # A noise-free model cube with real emission pixels: zero without emission is not a blank.
+    @test !any(RohsaLMC.blank_footprint(zeros(2, 2, 5) .+ reshape([0, 0, 1, 0, 0], 1, 1, 5); zero_is_blank=true))
+    for shift in (false, true)
+        dn, _ = RohsaLMC.derotate_cube(bcube, bref; integer_shift=shift)
+        @test all(isnan, dn[1:3, :, :])
+        for sigma in (nothing, fill(0.05, nx, ny))
+            padded = RohsaLMC.fill_padding!(copy(dn), .!footprint; sigma)
+            @test all(isnan, padded[1:3, :, :]) && all(isfinite, padded[4:end, :, :])
+        end
+        # Zeros without `blank` stay zeros (the previous behaviour); with it they are NaN.
+        dz, _ = RohsaLMC.derotate_cube(zcube, bref; integer_shift=shift)
+        zpad = RohsaLMC.fill_padding!(copy(dz), trues(nx, ny))
+        @test all(iszero, zpad[1:3, :, :]) && any(!iszero, zpad[4:end, :, :])
+        dzb, ombz = RohsaLMC.derotate_cube(zcube, bref; integer_shift=shift, blank=footprint)
+        @test all(isnan, dzb[1:3, :, :])
+        @test isequal(dzb[4:end, :, :], dz[4:end, :, :])
+        padded = RohsaLMC.fill_padding!(copy(dzb), .!footprint)   # zero padding must not refill blanks
+        @test all(isnan, padded[1:3, :, :]) && all(isfinite, padded[4:end, :, :])
+        # Without `blank`, the NaN-footprint cube de-rotates exactly as before.
+        @test isequal(RohsaLMC.derotate_cube(bcube, bref; integer_shift=shift, blank=falses(nx, ny))[1], dn)
+    end
+    @test_throws ArgumentError RohsaLMC.derotate_cube(bcube, bref; blank=falses(2, 2))
+
     # Reference sanitizing: trusted where the model has emission, constant where it has none.
     refmap = fill(50.0, 40, 40); refmap[:, 31:40] .= 5000.0          # junk where there is no emission
     colmap = fill(100.0, 40, 40); colmap[:, 31:40] .= 0.0

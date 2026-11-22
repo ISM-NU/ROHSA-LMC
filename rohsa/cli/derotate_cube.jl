@@ -24,8 +24,16 @@ using RohsaLMC
 # the shift constant where the model has no emission (sanitize_reference).
 # --integer-shift lists cubes shifted by whole channels (clipped, non-Gaussian
 # noise; see derotate_cube).
+# --blank-from NAME (default: off) takes the survey footprint from the cube NAME
+# (a spectrum that is non-finite or exactly zero in every channel is a blank; use
+# the observed data crop, where clean_voxel wrote NaN as 0) and keeps those pixels
+# NaN in every cube, also when a cube holds zero there (crops, model and layer
+# cubes) and with no padding. Without it only pixels that are NaN in a cube's own
+# input stay NaN. The VGT configs written here are copies of the templates; to mask
+# the directions near the blank edge, set edge_mask = true in them once the pinned
+# VGT has that option.
 
-const USAGE = "Usage: julia --project=. rohsa/cli/derotate_cube.jl <reference.fits> <out_dir> <config_dir> [--noise-pad data] [--beam-fwhm-px 3] [--column model_moment0.fits] [--integer-shift data] name=cube.fits ..."
+const USAGE = "Usage: julia --project=. rohsa/cli/derotate_cube.jl <reference.fits> <out_dir> <config_dir> [--noise-pad data] [--beam-fwhm-px 3] [--column model_moment0.fits] [--integer-shift data] [--blank-from data] name=cube.fits ..."
 
 function main(args=ARGS)
     length(args) >= 4 || throw(ArgumentError(USAGE))
@@ -35,6 +43,7 @@ function main(args=ARGS)
     beam_fwhm_px = 3.0
     column_path = ""
     integer_names = String[]
+    blank_from = ""
     while !isempty(rest) && startswith(rest[1], "--")
         length(rest) >= 2 || throw(ArgumentError(USAGE))
         opt, val = popfirst!(rest), popfirst!(rest)
@@ -46,6 +55,8 @@ function main(args=ARGS)
             column_path = abspath(val)
         elseif opt == "--integer-shift"
             integer_names = split(val, r"[,:]")
+        elseif opt == "--blank-from"
+            blank_from = val
         else
             throw(ArgumentError("Unknown option $opt. $USAGE"))
         end
@@ -67,15 +78,25 @@ function main(args=ARGS)
         trace["trusted_fraction"] = count(>=(0.999), weight) / length(weight)
         println("reference sanitized with $column_path: trusted fraction $(trace["trusted_fraction"])")
     end
+    blank = nothing
+    if !isempty(blank_from)
+        idx = findfirst(p -> first(p) == blank_from, inputs)
+        idx === nothing && throw(ArgumentError("--blank-from $blank_from is not one of the cubes ($(join(first.(inputs), ", ")))"))
+        blank = RohsaLMC.blank_footprint(read_fits_image(last(inputs[idx])); zero_is_blank=true)
+        trace["blank_from"] = blank_from
+        trace["blank_fraction"] = count(blank) / length(blank)
+        println("blank footprint from $blank_from: $(round(100 * trace["blank_fraction"]; digits=2))% of pixels")
+    end
     for (name, path) in inputs
         template = joinpath(config_dir, "vgt_$(name).toml")
         isfile(template) || throw(ArgumentError("Missing VGT config $template"))
         header = read_fits_header(path)
         cube = read_fits_image(path)
-        t = @elapsed out, omin = RohsaLMC.derotate_cube(cube, reference; integer_shift=name in integer_names)
+        t = @elapsed out, omin = RohsaLMC.derotate_cube(cube, reference; integer_shift=name in integer_names, blank)
         flux_in = sum(v -> isfinite(v) ? Float64(v) : 0.0, cube)
         flux_out = sum(v -> isfinite(v) ? Float64(v) : 0.0, out)
         observed = dropdims(any(isfinite, cube; dims=3); dims=3)
+        blank === nothing || (observed .&= .!blank)   # the padding must not refill blanks
         if name in noise_pad
             # Our preprocessing clips negative values; then the noise level cannot be
             # measured from the negative tail, so take the one VGT itself uses.
