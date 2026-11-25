@@ -123,7 +123,10 @@ function run_rohsa_preprocessing(cfg::RohsaConfig)
                                                 spectral_kernel=cfg.spectral_kernel,
                                                 clip_negative=cfg.clip_negative,
                                                 noise_map=cfg.noise_map,
-                                                holdout_mask=cfg.holdout_mask)
+                                                holdout_mask=cfg.holdout_mask,
+                                                noise_estimate=cfg.noise_estimate,
+                                                noise_per_pixel=cfg.noise_per_pixel,
+                                                noise_channels=cfg.noise_channels)
         push!(region_rows, Dict{String, Any}(
             "region" => region.label,
             "x0" => region.x0,
@@ -137,6 +140,8 @@ function run_rohsa_preprocessing(cfg::RohsaConfig)
             "clip_negative" => cfg.clip_negative,
             "noise_map" => cfg.noise_map,
             "holdout_mask" => cfg.holdout_mask,
+            "noise_estimate_method" => cfg.noise_estimate,
+            "noise_per_pixel" => cfg.noise_per_pixel,
             "fits_path" => region_products.fits_path,
         ))
 

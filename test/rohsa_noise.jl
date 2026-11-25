@@ -1,5 +1,6 @@
 using Test
 using Random
+using Statistics: median
 
 module RohsaInputsTest
     using VGT
@@ -60,4 +61,57 @@ end
     n = Float32.(randn(rng, 100_000))
     @test sum(c.(n, true)) / length(n) > 0.35           # ~0.4 sigma
     @test abs(sum(c.(n, false)) / length(n)) < 0.02
+end
+
+@testset "ROHSA line-free noise map: per-pixel level, unbiased by lines and channel correlation" begin
+    # Synthetic cube: noise level rising from 0.2 to 0.4 across x, channel-correlated ([b, 1, b], lag 1 = 0.4, as
+    # after resampling), and one bright line per pixel (peak 30x the noise, sigma 3 channels) at a varying centre.
+    rng = MersenneTwister(5)
+    nx, ny, nv = 32, 24, 120
+    level = [0.2 + 0.2 * (x - 1) / (nx - 1) for x in 1:nx, y in 1:ny]
+    b = (1 - sqrt(1 - 2 * 0.4^2)) / (2 * 0.4)
+    w = [b, 1.0, b] ./ sqrt(1 + 2b^2)
+    white = randn(rng, nx, ny, nv + 2)
+    cube = zeros(Float32, nx, ny, nv)
+    for c in 1:nv, y in 1:ny, x in 1:nx
+        mu = 40 + 40 * (x + y) / (nx + ny)
+        cube[x, y, c] = level[x, y] * (w[1] * white[x, y, c] + w[2] * white[x, y, c + 1] + w[3] * white[x, y, c + 2]) +
+                        30 * 0.3 * exp(-0.5 * ((c - mu) / 3)^2)
+    end
+    scalar = RohsaInputsTest.robust_channel_difference_noise(cube)
+    m = RohsaInputsTest.line_free_noise_map(cube; smooth_px=5)
+    # interior pixels (the 5 px box mixes levels at the x edges); per-channel truth = level
+    ratio = m[4:end-3, :] ./ level[4:end-3, :]
+    @test isapprox(median(ratio), 1.0; atol=0.05)
+    @test all(0.85 .< ratio .< 1.15)
+    @test m[end, 1] > 1.6 * m[1, 1]                       # it follows the level across the field
+    @test abs(scalar / median(level) - 1) > 0.1           # the default estimator is off on this cube
+
+    # Fixed line-free channels give the same level; ranges are 1-based and inclusive.
+    ch = RohsaInputsTest.parse_channel_ranges("1-25,100-120", nv)
+    @test ch == [1:25; 100:120]
+    mc = RohsaInputsTest.line_free_noise_map(cube; channels=ch, smooth_px=5)
+    @test isapprox(median(mc[4:end-3, :] ./ level[4:end-3, :]), 1.0; atol=0.06)
+    @test RohsaInputsTest.parse_channel_ranges("", nv) === nothing
+    @test_throws ArgumentError RohsaInputsTest.parse_channel_ranges("0-5", nv)
+
+    # Mask fill (NaN, exact zero) is ignored; a pixel with no usable voxels is filled from its neighbours.
+    c2 = copy(cube); c2[1:4, 1:4, :] .= NaN32; c2[10, 10, :] .= 0.0f0
+    m2 = RohsaInputsTest.line_free_noise_map(c2; smooth_px=5)
+    @test all(isfinite, m2) && all(m2 .> 0)
+    @test isapprox(m2[10, 10], level[10, 10]; rtol=0.15)
+end
+
+@testset "ROHSA line-free noise map: emission over most of the band" begin
+    # Wide bright emission (two broad lines covering about 70 % of the channels, as in Milky Way H I) must not set the
+    # emission threshold.
+    rng = MersenneTwister(9)
+    nx, ny, nv = 16, 16, 106
+    cube = Float32.(0.3 .* randn(rng, nx, ny, nv))
+    for c in 1:nv
+        cube[:, :, c] .+= Float32(15 * exp(-0.5 * ((c - 45) / 12)^2) + 8 * exp(-0.5 * ((c - 70) / 6)^2))
+    end
+    m = RohsaInputsTest.line_free_noise_map(cube; smooth_px=5)
+    @test isapprox(median(m), 0.3; rtol=0.08)
+    @test RohsaInputsTest.robust_channel_difference_noise(cube) > 0.33   # line slopes raise the default estimate
 end

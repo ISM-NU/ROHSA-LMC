@@ -22,7 +22,7 @@ using Random
     @test wrapper.upstream_rohsa_source_dir() == normpath(joinpath(@__DIR__, "..", "rohsa", "upstream", "ROHSA"))
     @test wrapper.upstream_rohsa_binary() == joinpath(wrapper.upstream_rohsa_source_dir(), "src", "ROHSA")
 
-    override_cfg, no_adjoint_cfg, budget_cfg = mktempdir() do dir
+    override_cfg, no_adjoint_cfg, budget_cfg, noise_cfg = mktempdir() do dir
         config_text = """
         [input]
         input = "data/exp_raw/component.fits"
@@ -67,9 +67,14 @@ using Random
         end
         @test_throws ArgumentError load(config_text * "checkpoint_at = [0]\n")
         load(config_text), load(config_text * "regul_grad_adjoint = false\n"),
-        load(config_text * "maxiter_last = 5000\ncheckpoint_at = [800, 100]\n")
+        load(config_text * "maxiter_last = 5000\ncheckpoint_at = [800, 100]\n"),
+        load(config_text * "noise_estimate = \"line_free\"\nnoise_per_pixel = true\nnoise_channels = \"1-10,95-106\"\n")
     end
     @test override_cfg.n_gauss == [4, 6]
+    @test (override_cfg.noise_estimate, override_cfg.noise_per_pixel, override_cfg.noise_channels) ==
+          ("channel_difference", false, "")
+    @test (noise_cfg.noise_estimate, noise_cfg.noise_per_pixel, noise_cfg.noise_channels) ==
+          ("line_free", true, "1-10,95-106")
     @test override_cfg.lambda_amp == 250.0
     @test override_cfg.lambda_mu == 100.0
     @test override_cfg.sig_init == 4.0
@@ -176,6 +181,30 @@ using Random
         @test count(==(0.0), values(vals)) == 8
         @test vals[(4, 2)] == 0.0          # (y, x) 0-based = mask[3, 5]
         @test vals[(0, 0)] ≈ plain.sigma
+
+        # Default output unchanged by the new options: the scalar from the channel-difference estimate, written by the
+        # scalar writer byte for byte.
+        @test plain.sigma == wrapper.robust_channel_difference_noise(noise)
+        ref_rms = joinpath(dir, "ref_rms.dat")
+        wrapper.write_rms_map(ref_rms, 16, 16, plain.sigma)
+        @test read(ref_rms) == read(plain.rms_path)
+
+        # noise_estimate = line_free: scalar by default, the per-pixel map with noise_per_pixel; held-out pixels
+        # still get 0; bad option values are rejected.
+        lf = wrapper.write_region_products(input_path, header, region, joinpath(dir, "lf"); noise_estimate="line_free")
+        @test isapprox(lf.sigma, 0.3; rtol=0.1)
+        lfvals = unique(parse(Float64, split(l, '\t')[3]) for l in readlines(lf.rms_path)[2:end])
+        @test length(lfvals) == 1
+        lfp = wrapper.write_region_products(input_path, header, region, joinpath(dir, "lfp");
+                                            noise_estimate="line_free", noise_per_pixel=true, holdout_mask=mask_path)
+        pvals = [parse(Float64, split(l, '\t')[3]) for l in readlines(lfp.rms_path)[2:end]]
+        @test count(==(0.0), pvals) == 8
+        @test length(unique(filter(>(0), pvals))) > 1
+        @test all(v -> v == 0 || isapprox(v, 0.3; rtol=0.25), pvals)
+        @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad");
+                                                                 noise_estimate="lstd")
+        @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad2");
+                                                                 noise_per_pixel=true)
     end
 
     rows = [

@@ -311,6 +311,137 @@ function write_streamed_cube_dat(input::AbstractString, dat_path::AbstractString
     return dat_path
 end
 
+# Channel list for `noise_channels`, e.g. "1-10,95-106" (1-based, inclusive). Empty string -> nothing.
+function parse_channel_ranges(spec::AbstractString, nv::Int)
+    isempty(strip(spec)) && return nothing
+    ch = Int[]
+    for part in split(spec, ',')
+        p = strip(part)
+        isempty(p) && continue
+        a, b = occursin('-', p) ? parse.(Int, split(p, '-'; limit=2)) : (parse(Int, p), parse(Int, p))
+        (1 <= a <= b <= nv) || throw(ArgumentError("noise_channels `$spec`: range $p outside 1:$nv"))
+        append!(ch, a:b)
+    end
+    return sort!(unique!(ch))
+end
+
+# Variance mean of a map with gaps (NaN) over a box of `w` x `w` pixels; boxes with less than 20 % valid pixels stay
+# NaN. Used to smooth the per-pixel noise map and to fill pixels with too few line-free voxels.
+function box_variance_mean(sig::AbstractMatrix{<:Real}, w::Int)
+    nx, ny = size(sig)
+    ok = isfinite.(sig) .& (sig .> 0)
+    v = zeros(Float64, nx + 1, ny + 1)
+    c = zeros(Float64, nx + 1, ny + 1)
+    for y in 1:ny, x in 1:nx
+        v[x + 1, y + 1] = (ok[x, y] ? Float64(sig[x, y])^2 : 0.0) + v[x, y + 1] + v[x + 1, y] - v[x, y]
+        c[x + 1, y + 1] = (ok[x, y] ? 1.0 : 0.0) + c[x, y + 1] + c[x + 1, y] - c[x, y]
+    end
+    h = w ÷ 2
+    out = fill(NaN, nx, ny)
+    for y in 1:ny, x in 1:nx
+        x0, x1, y0, y1 = max(x - h, 1), min(x + h, nx), max(y - h, 1), min(y + h, ny)
+        n = c[x1 + 1, y1 + 1] - c[x0, y1 + 1] - c[x1 + 1, y0] + c[x0, y0]
+        n >= 0.2 * (x1 - x0 + 1) * (y1 - y0 + 1) || continue
+        out[x, y] = sqrt((v[x1 + 1, y1 + 1] - v[x0, y1 + 1] - v[x1 + 1, y0] + v[x0, y0]) / n)
+    end
+    return out
+end
+
+"""
+    line_free_noise_map(cube; channels=nothing, k=3.0, width=5, dilate=3, min_count=8, smooth_px=9)
+
+Per-pixel noise per channel (robust std) from the voxels without line emission, for `noise_estimate = "line_free"`.
+Returns a map in Julia x-y order.
+
+Why: `robust_channel_difference_noise` uses adjacent-channel differences over every channel. The slopes of bright
+lines raise it, and channel-to-channel correlation (resampling, Hanning smoothing) lowers it by sqrt(1 - rho1). The
+chi2 that ROHSA minimises assumes the per-channel noise, which is neither.
+
+How: a voxel carries emission if its spectrum, smoothed with a `width`-channel boxcar, departs from zero (the cubes
+are continuum-subtracted) by more than `k` times the robust spread of the smoothed spectrum on the channels without
+emission (iterated from the pixel's channel-difference level; the spread includes the channel correlation); the
+mask grows by `dilate` channels on each side. Per pixel, 1.4826 x MAD of the remaining voxels about their median
+(the median removes a baseline offset). The map is the variance mean over `smooth_px` x `smooth_px` pixels, which also
+fills pixels with fewer than `min_count` line-free voxels; pixels still empty get the map median. NaN and exact-zero
+voxels (mask fill) are never used. `channels` (1-based indices) replaces the mask by a fixed line-free channel list.
+
+Limit: the map is one level per pixel. In combined interferometer + single-dish cubes the noise can change between
+channel blocks (e.g. channels outside the interferometer band hold only the much quieter single-dish data); there the
+line-free channels are not representative of the line channels and the map is too low. Check the map before using it
+with `noise_per_pixel = true`; a per-channel weight needs a ROHSA change.
+"""
+function line_free_noise_map(cube::AbstractArray{<:Real,3}; channels=nothing, k::Real=3.0, width::Int=5,
+                             dilate::Int=3, min_count::Int=8, smooth_px::Int=9)
+    nx, ny, nv = size(cube)
+    usable(v) = isfinite(v) && v != 0
+    raw = fill(NaN, nx, ny)
+    s0 = robust_channel_difference_noise(cube)  # only the fallback when no pixel has line-free voxels
+    begin
+        Threads.@threads for y in 1:ny
+            sp = zeros(Float64, nv); kp = falses(nv); vs = Float64[]; ok = falses(nv); cs = zeros(Float64, nv + 1)
+            ds = zeros(Float64, nv)
+            for x in 1:nx
+                for c in 1:nv
+                    v = cube[x, y, c]
+                    ok[c] = usable(v)
+                    sp[c] = ok[c] ? Float64(v) : 0.0
+                end
+                count(ok) >= min_count || (raw[x, y] = NaN; continue)
+                if channels === nothing
+                    for c in 1:nv
+                        cs[c + 1] = cs[c] + sp[c]
+                    end
+                    h = width ÷ 2
+                    for c in 1:nv
+                        a, b = max(c - h, 1), min(c + h, nv)
+                        ds[c] = (cs[b + 1] - cs[a]) / max(count(view(ok, a:b)), 1)
+                    end
+                    # start: the pixel's adjacent-channel difference level over sqrt(width); then the threshold is
+                    # re-measured as the robust spread of the smoothed spectrum on the channels still unmasked, which
+                    # holds the channel correlation (a sigma / sqrt(width) rule clips noise peaks and biases low)
+                    empty!(vs)
+                    for c in 1:(nv - 1)
+                        ok[c] && ok[c + 1] && push!(vs, sp[c + 1] - sp[c])
+                    end
+                    length(vs) >= min_count || (raw[x, y] = NaN; continue)
+                    thr = k * median(abs.(vs .- median(vs))) / MAD_NORMAL / sqrt(2 * width)
+                    for _ in 1:8
+                        kp .= ok
+                        for c in 1:nv
+                            if ok[c] && abs(ds[c]) > thr   # departure from zero: the cubes are continuum-subtracted
+                                kp[max(c - h - dilate, 1):min(c + h + dilate, nv)] .= false
+                            end
+                        end
+                        count(kp) >= min_count || break
+                        dg = ds[kp]
+                        t2 = k * median(abs.(dg .- median(dg))) / MAD_NORMAL
+                        abs(t2 - thr) <= 0.01 * thr && break
+                        thr = t2
+                    end
+                else
+                    kp .= false
+                    kp[channels] .= true
+                    kp .&= ok
+                end
+                empty!(vs)
+                for c in 1:nv
+                    kp[c] && push!(vs, sp[c])
+                end
+                if length(vs) < min_count
+                    raw[x, y] = NaN
+                else
+                    m = median(vs)
+                    raw[x, y] = median(abs.(vs .- m)) / MAD_NORMAL
+                end
+            end
+        end
+        sm = box_variance_mean(raw, smooth_px)
+        finite = filter(isfinite, sm)
+        fillv = isempty(finite) ? (isfinite(s0) ? s0 : 1.0) : median(finite)
+        return map(v -> isfinite(v) ? v : fillv, sm)
+    end
+end
+
 function write_rms_map(rms_path::AbstractString, nx::Int, ny::Int, sigma::Real)
     open(rms_path, "w") do io
         println(io, "$(ny)\t$(nx)")
@@ -354,7 +485,12 @@ function write_region_products(input::AbstractString, header, region::InputRegio
                                spectral_kernel::AbstractString="none",
                                clip_negative::Bool=true,
                                noise_map::AbstractString="",
-                               holdout_mask::AbstractString="")
+                               holdout_mask::AbstractString="",
+                               noise_estimate::AbstractString="channel_difference",
+                               noise_per_pixel::Bool=false,
+                               noise_channels::AbstractString="")
+    noise_estimate in ("channel_difference", "line_free") ||
+        throw(ArgumentError("noise_estimate `$noise_estimate`: expected channel_difference or line_free"))
     mkpath(region_dir)
     kernel = spectral_kernel_weights(spectral_kernel)
     kernel_sigma_chan = spectral_kernel_sigma(kernel)
@@ -373,9 +509,16 @@ function write_region_products(input::AbstractString, header, region::InputRegio
     cube = retain_cube || write_region_fits ? read_region_cube(input, region) : nothing
     if cube !== nothing
         sigma = robust_channel_difference_noise(cube)  # raw cube, before clipping
+        sigma_map = nothing
+        if noise_estimate == "line_free"
+            sigma_map = line_free_noise_map(cube; channels=parse_channel_ranges(noise_channels, size(cube, 3)))
+            sigma = median(sigma_map)
+        end
         if length(kernel) > 1
             cube = smooth_spectra(cube, kernel)
-            sigma *= spectral_kernel_noise_factor(kernel)
+            f = spectral_kernel_noise_factor(kernel)  # white-noise factor; correlated input noise drops less
+            sigma *= f
+            sigma_map === nothing || (sigma_map .*= f)
         end
         cube .= clean_voxel.(cube, clip_negative)
         write_region_fits && VGT.write_fits(fits_path, cube; header=region_header)
@@ -383,16 +526,23 @@ function write_region_products(input::AbstractString, header, region::InputRegio
     else
         length(kernel) == 1 ||
             throw(ArgumentError("spectral_kernel needs the cube in memory; set write_region_fits = true"))
+        noise_estimate == "channel_difference" ||
+            throw(ArgumentError("noise_estimate = line_free needs the cube in memory; set write_region_fits = true"))
+        sigma_map = nothing
         rohsa_input_path = write_streamed_cube_dat(input, joinpath(region_dir, string(region.label, ".dat")), region;
                                                     clip_negative=clip_negative)
         sigma = estimate_streamed_noise(input, region)
     end
     isfinite(sigma) || (sigma = 1.0)
     rms_path = joinpath(region_dir, "rms_map.dat")
-    if isempty(noise_map) && isempty(holdout_mask)
+    per_pixel = noise_per_pixel && sigma_map !== nothing
+    noise_per_pixel && sigma_map === nothing && isempty(noise_map) &&
+        throw(ArgumentError("noise_per_pixel = true needs noise_estimate = line_free (or a noise_map)"))
+    if isempty(noise_map) && isempty(holdout_mask) && !per_pixel
         write_rms_map(rms_path, region.nx, region.ny, sigma)
     else
-        m = isempty(noise_map) ? fill(Float64(sigma), region.nx, region.ny) : read_noise_map(noise_map, region)
+        m = !isempty(noise_map) ? read_noise_map(noise_map, region) :
+            per_pixel ? Float64.(sigma_map) : fill(Float64(sigma), region.nx, region.ny)
         good = filter(v -> isfinite(v) && v > 0, m)
         sigma = isempty(good) ? sigma : median(good)  # reported level; ROHSA uses the map
         isempty(holdout_mask) || (m[read_noise_map(holdout_mask, region) .!= 0] .= 0.0)
