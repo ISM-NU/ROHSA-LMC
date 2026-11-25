@@ -24,6 +24,7 @@ says exactly how it changes the results:
 | 4 | `openmp-cost-function` | master, needs #2 #3 | Optional OpenMP build (`make OPENMP=1`) for the cost function, one spectrum at a time; **justification for multi-core** | same result at any thread count; rounding vs #2 + #3 |
 | 5 | `openmp-lbfgsb` | master, needs #4 | OpenMP in L-BFGS-B and BLAS, sums in fixed blocks | same result at any thread count; identical to #4 up to 65536 variables, rounding above |
 | 6 | `binary-input` | master | Optional binary input (`.bin`) + `ROHSApy.cube2bin` | text input unchanged; same values give identical output |
+| 7 | `zero-padding` | master | Set the padded part of `cube` and `std_cube` to 0 before `reshape_up` (upstream #10, 2026-11-25; `patches/zero-padding`) | power-of-two maps unchanged; padded maps no longer depend on uninitialised memory |
 
 #1, #2, #3 and #6 are independent and can be merged in any order. #4 contains
 the commits of #2 and #3 and #5 those of #4 (stacked PRs); each says which

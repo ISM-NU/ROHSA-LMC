@@ -1,0 +1,31 @@
+From 882549a12220084612f5755c0b62a3d29b8d2e70 Mon Sep 17 00:00:00 2001
+From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 21:53:57 +0500
+Subject: [PATCH] Set the padded part of the grid to 0 before reshape_up
+
+reshape_up fills only the data part of cube, and std_cube is filled by
+reshape_noise_up, so on a grid padded to a power of two the padded
+pixels held whatever the allocator returned. The coarse levels average
+them into the fit.
+---
+ src/mod_rohsa.f90 | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/mod_rohsa.f90 b/src/mod_rohsa.f90
+index 05adbf0..05cd590 100644
+--- a/src/mod_rohsa.f90
++++ b/src/mod_rohsa.f90
+@@ -215,6 +215,10 @@ contains
+        call max_spectrum(data, max_spect, dim_data(1), dim_data(2), dim_data(3))
+        call max_spectrum(data, max_spect_norm, dim_data(1), dim_data(2), dim_data(3), maxval(mean_spect))
+ 
++       !The padded part of the grid (map size not a power of two) is not data: set it to 0, as reshape_up only fills
++       !the data part and an allocated array is not initialised
++       cube = 0._xp
++       std_cube = 0._xp
+        call reshape_up(data, cube, dim_data, dim_cube)
+ 
+        !Allocate memory for parameters grids
+-- 
+2.56.1
+
