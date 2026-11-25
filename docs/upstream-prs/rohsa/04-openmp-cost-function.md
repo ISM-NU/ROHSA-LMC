@@ -1,6 +1,6 @@
 # Optional OpenMP parallelisation of the cost function
 
-Branch `openmp-cost-function` · base `master` · **depends on #2 and #3**
+Branch `openmp-cost-function` · base `master` · **depends on #5 and #6**
 (their commits are included; please review the last two commits,
 "Optional OpenMP parallelisation of the cost function" and "Skip exp() where it
 is exactly zero").
@@ -29,7 +29,7 @@ parameters with N = 6, 101 million with N = 8.
 AMD EPYC 9684X node. The nodes were shared with other jobs, so expect about
 ±10 % per number. Wall time, and speed-up over one thread of the same build:
 
-| threads | this PR | with #5 |
+| threads | this PR | with #9 |
 |---:|---:|---:|
 | 1 | 5207 s (1.0×) | 5466 s (1.0×) |
 | 2 | 3084 s (1.7×) | 2874 s (1.9×) |
@@ -39,13 +39,13 @@ AMD EPYC 9684X node. The nodes were shared with other jobs, so expect about
 | 32 | 955 s (5.5×) | 419 s (13.0×) |
 
 This PR alone levels off at about 5×: the cost function is then fast, and the
-serial L-BFGS-B update takes most of the time. #5 parallelises that part. The
+serial L-BFGS-B update takes most of the time. #9 parallelises that part. The
 full 2048 × 2048 × 159 region (N = 8) took 2 h 58 min on 32 threads with all
 PRs. At the one-thread rate above, it would take roughly 13 times as long, about
 1.6 days. That is an extrapolation from the window; we did not make a serial run
 of the full region.
 
-**This version against the first one** (both with #5, same node, N = 16):
+**This version against the first one** (both with #9, same node, N = 16):
 512 × 512 × 159 at 32 threads, 724 s → 539 s, peak memory 4.4 → 3.9 GiB;
 128 × 128 × 159 at one thread, 452–519 s → 325–368 s; 2048 × 2048 × 159 for
 10 iterations at 32 threads, 323 s → 260 s.
@@ -70,11 +70,11 @@ on one map takes weeks; with threads it fits in a few days on one node.
 **What it costs:**
 
 - *Reproducibility*: the result does not depend on the number of threads.
-  Against #2 + #3 the serial result changes by rounding only: the derivatives
+  Against #5 + #6 the serial result changes by rounding only: the derivatives
   reuse the `exp()` values of the model (gfortran vectorises that loop, and the
   vector `exp()` can differ from the scalar one in the last bit), and the
   regularisation sum is grouped by sky column. With `exp()` recomputed as
-  before, the cost function is bitwise identical to #2 + #3.
+  before, the cost function is bitwise identical to #5 + #6.
 - *Memory*: lower than before. The residual cube is gone, and no large array is
   copied per thread (each thread keeps one spectrum's model and Gaussians).
   f is stored per pixel (one map) so that it can be added in serial order.
@@ -95,7 +95,7 @@ All loops over independent sky columns:
    regularisation parts of f and of the `b_params` gradient are summed per
    column, then over the columns in order);
 3. `convolution_2D_mirror`: zero fill, interior copy and the convolution loop
-   (rewritten in #2 so that columns are independent).
+   (rewritten in #5 so that columns are independent).
 
 ## How we checked it
 
@@ -103,9 +103,9 @@ All loops over independent sky columns:
   (48 × 48 × 159 window of the LMC cube, N = 8; 512 × 512 × 159 window, N = 16,
   at 16 and 32 threads).
 - With `exp()` recomputed in the derivative loop as before, the serial build is
-  bit-for-bit identical to #2 + #3, so the rounding differences come only from
+  bit-for-bit identical to #5 + #6, so the rounding differences come only from
   the two sources above.
-- Equivalence with #2 + #3 under rounding: we moved every input value by one
+- Equivalence with #5 + #6 under rounding: we moved every input value by one
   float32 ulp at random, 24 times, on two 128 × 128 × 159 windows, and ran both
   versions. Pairwise differences between the two versions are the same size as
   within each version (permutation test p ≥ 0.78), and no summary statistic
