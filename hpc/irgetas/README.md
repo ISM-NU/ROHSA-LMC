@@ -126,6 +126,35 @@ the survey footprint of the cube `data` (all-zero or non-finite spectra) NaN in
 every output cube; without it, ROHSA crops and model cubes that hold zero outside
 the survey de-rotate to zero there.
 
+## Experiment repos that guard on a build
+
+LMC-cold-gas `hpc/irgetas/submit_dirinj.sh` (`fits` phase) and
+`submit_r1125_wts.sh` (`build_ok`) refuse to submit unless three md5 sums match:
+the binary `rohsa/upstream/ROHSA/src/ROHSA`, `rohsa/inputs.jl` and
+`rohsa/configs.jl`. They read `$ROHSA_REPO`, default `~/rohsa-weights`. That is
+a separate checkout (`r1125-weights`, commit 2579fa5), not the ROHSA-LMC
+submodule pinned under `deps/` in LMC-cold-gas, so bumping the pin does not
+trip them. Moving the checkout to any commit that changes one of the files
+does, including the tip of `r1125-weights`.
+
+The guard does not cover `preprocess.jl`, `auto_config.jl` or `runner.jl`, which
+also change between builds.
+
+When the build moves (a new checkout of `$ROHSA_REPO`, or a rebuild after its
+sources changed), refresh, in this order:
+
+1. The default of `regul_grad_adjoint`. The 2579fa5 build leaves it off; on
+   `main` (0c061f1 onward) it is on, which changes the fits. None of the 66
+   `*inject*` configs or the 10 `lmc2048_n16_smooth10_noclip_*` configs set it.
+   Set `regul_grad_adjoint = false` in them to keep the old behaviour, or refit
+   the baselines (`_ctl`, `_wts`, `_skip`) with the new default.
+2. One baseline. Refit one and diff its `rohsa_n<N>.dat` against the recorded
+   one. Continue only if the difference is expected.
+3. The md5 lines in both scripts: binary (`submit_dirinj.sh:81`,
+   `submit_r1125_wts.sh:62`), `inputs.jl` (`:82`, `:63`) and `configs.jl`
+   (`:83`, `:64`). The binary changes whenever `rohsa.slurm` rebuilds, so
+   recompute it after the first job on the new checkout has built it.
+
 ## Citations
 
 Work using ROHSA cites Marchal et al. 2019, A&A 626, A101. NU asks users to
