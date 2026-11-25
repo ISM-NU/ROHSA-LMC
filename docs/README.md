@@ -8,5 +8,5 @@ Status: active guidance, validation evidence, historical note, or archive.
 - `validation/rohsa-deterministic-openmp-2026-11-13.md` - OpenMP sums in a fixed order (output independent of thread count), fused data term; speed and ±1-ulp ensemble equivalence. Validation evidence.
 - `validation/rohsa-openmp-parity-2026-10-17.md` - parity and speed check of the first OpenMP patch. Validation evidence, thread-count part superseded.
 - `validation/rohsa-laptop-full-cube-design-2026-06-26.md` - design of an out-of-core full-cube ROHSA-compatible path for laptops. Active design, experimental.
-- `upstream-prs/rohsa/README.md` - the six pull requests to upstream ROHSA, with texts, patches and checks. Keep in sync with `rohsa/upstream/ROHSA`. Active guidance.
+- `upstream-prs/rohsa/README.md` - the six pull requests to upstream ROHSA, with texts, patches and checks. The patch series reproduces `rohsa/upstream/ROHSA` exactly (`scripts/check_rohsa_patches.sh`). Active guidance.
 - The ROHSA paper: Marchal et al. 2019, A&A 626, A101 ([ADS](https://ui.adsabs.harvard.edu/abs/2019A%26A...626A.101M/abstract)). Reference.

@@ -1,0 +1,244 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
+Date: Thu, 12 Nov 2026 13:43:32 +0500
+Subject: [PATCH] Exact smoothing-term gradient at map edges, log each fit's
+ stop reason
+
+The smoothing term is 0.5*lambda*|D x|^2 with D the mirror-padded 3x3
+convolution. Its gradient is lambda*D^T D x, but the code applies D twice.
+The padding makes D non-symmetric in the two outer rows and columns, so the
+gradient is wrong there, by up to 150x in a finite-difference check: every
+pixel of the 4x4 level, 44% of 16x16, 0.4% at 2048^2.
+
+The new parameter regul_grad_adjoint = .true. uses the exact adjoint. It
+defaults to .false., so existing parameter files give the same result as
+before.
+
+Each L-BFGS-B fit now prints iterations, evaluations, final cost, projected
+gradient and the stop reason. Before, nothing was printed when maxiter
+stopped a level.
+---
+ src/Makefile             |  2 +-
+ src/mod_array.f90        | 89 +++++++++++++++++++++++++++++++++++++++-
+ src/mod_inout.f90        |  3 +-
+ src/mod_minimize.f90     | 10 +++++
+ src/mod_optimize.f90     | 12 +++---
+ src/mod_optimize_lym.f90 |  6 +--
+ 6 files changed, 110 insertions(+), 12 deletions(-)
+
+diff --git a/src/Makefile b/src/Makefile
+index ec42b11..be63aaa 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -20,7 +20,7 @@ endif
+ 
+ OUT=ROHSA
+ 
+-all: blas.o lbfgsb.o linpack.o timer.o mod_constants.o mod_convert.o mod_inout.o mod_array.o mod_optimize.o mod_optimize_lym.o mod_minimize.o mod_functions.o mod_start.o mod_rohsa.o main.o
++all: blas.o lbfgsb.o linpack.o timer.o mod_constants.o mod_convert.o mod_array.o mod_inout.o mod_optimize.o mod_optimize_lym.o mod_minimize.o mod_functions.o mod_start.o mod_rohsa.o main.o
+ 	$(FC) $^ $(CFLAGS) -o $(OUT)
+ 
+ main.o: main.f90
+diff --git a/src/mod_array.f90 b/src/mod_array.f90
+index effc94f..fec721b 100644
+--- a/src/mod_array.f90
++++ b/src/mod_array.f90
+@@ -6,7 +6,13 @@ module mod_array
+ 
+   private
+ 
+-  public :: convolution_2D_mirror, ravel_2D, ravel_3D, unravel_3D, mean, std, std_2D, mean_2D, max_2D, ravel_3D_abs, unravel_3D_abs
++  public :: convolution_2D_mirror, convolution_2D_mirror_adjoint, regul_gradient, ravel_2D, ravel_3D, unravel_3D, mean, std, std_2D, mean_2D, max_2D, ravel_3D_abs, unravel_3D_abs
++
++  !! The smoothing term is 0.5*lambda*|D x|^2 with D = convolution_2D_mirror. Its gradient is
++  !! lambda * D^T D x. The mirror padding makes D non-symmetric in the two outer rows and columns,
++  !! so D D x (the original code) is wrong there (all pixels of a 4x4 level, 44% of a 16x16 one).
++  !! .true. uses the exact adjoint; .false. keeps the original behaviour for comparison with old runs.
++  logical, public :: regul_grad_adjoint = .false.
+   
+   
+ contains
+@@ -85,6 +91,87 @@ contains
+ 
+   end subroutine convolution_2D_mirror
+ 
++  !! out = D^T u, the exact adjoint of convolution_2D_mirror (same padding, same kernel).
++  subroutine convolution_2D_mirror_adjoint(u, out, dim_y, dim_x, kernel, dim_k)
++    implicit none
++
++    real(xp), intent(in), dimension(:,:), allocatable :: u
++    real(xp), intent(inout), dimension(:,:), allocatable :: out
++    real(xp), intent(in), dimension(:,:), allocatable :: kernel
++    integer, intent(in) :: dim_y, dim_x, dim_k
++
++    integer :: i, j, m, n, kc, p, q
++    real(xp) :: acc
++    real(xp), dimension(:,:), allocatable :: v
++
++    kc = dim_k / 2 + 1
++    ! v = C^T u on the padded grid: the forward pass reads extended(2+i+(m-kc), 2+j+(n-kc)) for output (i,j).
++    allocate(v(dim_y+4, dim_x+4))
++    !$omp parallel do private(p, q, m, n, i, j, acc) schedule(static)
++    do q=1, dim_x+4
++       do p=1, dim_y+4
++          acc = 0._xp
++          do m=1, dim_k
++             do n=1, dim_k
++                i = p - 2 - (m-kc)
++                j = q - 2 - (n-kc)
++                if (i >= 1 .and. i <= dim_y .and. j >= 1 .and. j <= dim_x) then
++                   acc = acc + u(i,j) * kernel(dim_k-m+1, dim_k-n+1)
++                end if
++             end do
++          end do
++          v(p,q) = acc
++       end do
++    end do
++    !$omp end parallel do
++
++    ! P^T: fold every padded cell back onto the image pixel it copies (same loops as the padding in
++    ! convolution_2D_mirror; the corner cells stay zero there and get no gradient).
++    !$omp parallel do private(i) schedule(static)
++    do j=1, dim_x
++       do i=1, dim_y
++          out(i,j) = v(2+i,2+j)
++       end do
++    end do
++    !$omp end parallel do
++    do j=1, 2
++       do i=1, dim_y
++          out(i,j) = out(i,j) + v(2+i,j)
++       end do
++    end do
++    do i=1, 2
++       do j=1, dim_x
++          out(i,j) = out(i,j) + v(i,2+j)
++       end do
++    end do
++    do j=dim_x+1, dim_x+2
++       do i=1, dim_y
++          out(i,j-2) = out(i,j-2) + v(2+i,2+j)
++       end do
++    end do
++    do j=1, dim_x
++       do i=dim_y+1, dim_y+2
++          out(i-2,j) = out(i-2,j) + v(2+i,2+j)
++       end do
++    end do
++    deallocate(v)
++  end subroutine convolution_2D_mirror_adjoint
++
++  !! Second pass of the smoothing-term gradient: D^T applied to conv = D x (exact) or, by default,
++  !! D applied again (the original ROHSA code; see regul_grad_adjoint).
++  subroutine regul_gradient(conv, out, dim_y, dim_x, kernel, dim_k)
++    implicit none
++    real(xp), intent(in), dimension(:,:), allocatable :: conv
++    real(xp), intent(inout), dimension(:,:), allocatable :: out
++    real(xp), intent(in), dimension(:,:), allocatable :: kernel
++    integer, intent(in) :: dim_y, dim_x, dim_k
++    if (regul_grad_adjoint) then
++       call convolution_2D_mirror_adjoint(conv, out, dim_y, dim_x, kernel, dim_k)
++    else
++       call convolution_2D_mirror(conv, out, dim_y, dim_x, kernel, dim_k)
++    end if
++  end subroutine regul_gradient
++
+ 
+   ! Return a contiguous flattened 1D array from a 2D array
+   subroutine ravel_2D(map, vector, dim_y, dim_x)
+diff --git a/src/mod_inout.f90 b/src/mod_inout.f90
+index 3d55f9a..026eb43 100644
+--- a/src/mod_inout.f90
++++ b/src/mod_inout.f90
+@@ -3,6 +3,7 @@ module mod_inout
+   !! This module read the input user parameters (parameters.txt file / data / noise if true)
+   use mod_constants
+   use mod_convert
++  use mod_array, only: regul_grad_adjoint
+   
+   implicit none
+   
+@@ -48,7 +49,7 @@ contains
+     namelist /user_parameters/ filename, fileout, timeout, filename_noise, filename_init_spec, n_gauss, lambda_amp, &
+          lambda_mu, lambda_sig, lambda_var_amp, lambda_var_mu, lambda_var_sig, lambda_lym_sig, amp_fact_init, &
+          sig_init, lb_sig_init, ub_sig_init, lb_sig, ub_sig, init_option, maxiter_init, maxiter, m, noise, regul, &
+-         descent, lstd, ustd, iprint, iprint_init, save_grid, lym, init_grid, fileinit, init_spec
++         descent, lstd, ustd, iprint, iprint_init, save_grid, lym, init_grid, fileinit, init_spec, regul_grad_adjoint
+     
+     open(unit=11, file=filename_parameters, status="old", iostat=ios)
+     if (ios /= 0) stop "opening file error"
+diff --git a/src/mod_minimize.f90 b/src/mod_minimize.f90
+index ea8ba77..353f03c 100644
+--- a/src/mod_minimize.f90
++++ b/src/mod_minimize.f90
+@@ -81,6 +81,11 @@ contains
+     !     end of loop do while       
+     end do
+ 
++    ! How this fit ended. Without this line nothing is printed when maxiter stops the fit (setulb is
++    ! not called again), so a budget stop cannot be told from convergence or a line-search failure.
++    write(*,'(a,i0,a,i0,a,i0,a,es14.6,a,es10.3,2a)') " lbfgsb_stop n=", n, " iter=", isave(30), " evals=", isave(34), &
++         " f=", f, " projg=", dsave(13), " task=", trim(task)
++
+     deallocate(nbd, g)
+     deallocate(iwa)
+     deallocate(wa)
+@@ -165,6 +170,11 @@ contains
+     !     end of loop do while       
+     end do
+ 
++    ! How this fit ended. Without this line nothing is printed when maxiter stops the fit (setulb is
++    ! not called again), so a budget stop cannot be told from convergence or a line-search failure.
++    write(*,'(a,i0,a,i0,a,i0,a,es14.6,a,es10.3,2a)') " lbfgsb_stop n=", n, " iter=", isave(30), " evals=", isave(34), &
++         " f=", f, " projg=", dsave(13), " task=", trim(task)
++
+     deallocate(nbd, g)
+     deallocate(iwa)
+     deallocate(wa)
+diff --git a/src/mod_optimize.f90 b/src/mod_optimize.f90
+index 41529e7..d2d62d7 100644
+--- a/src/mod_optimize.f90
++++ b/src/mod_optimize.f90
+@@ -245,9 +245,9 @@ contains
+        call convolution_2D_mirror(image_mu, conv_mu, dim_y, dim_x, kernel, 3)
+        call convolution_2D_mirror(image_sig, conv_sig, dim_y, dim_x, kernel, 3)
+ 
+-       call convolution_2D_mirror(conv_amp, conv_conv_amp, dim_y, dim_x, kernel, 3)
+-       call convolution_2D_mirror(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
+-       call convolution_2D_mirror(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
++       call regul_gradient(conv_amp, conv_conv_amp, dim_y, dim_x, kernel, 3)
++       call regul_gradient(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
++       call regul_gradient(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
+ 
+        ! The regularisation terms of f and of the b_params gradient are summed per column, then
+        ! over the columns in order.
+@@ -407,9 +407,9 @@ contains
+        call convolution_2D_mirror(image_mu, conv_mu, dim_y, dim_x, kernel, 3)
+        call convolution_2D_mirror(image_sig, conv_sig, dim_y, dim_x, kernel, 3)
+ 
+-       call convolution_2D_mirror(conv_amp, conv_conv_amp, dim_y, dim_x, kernel, 3)
+-       call convolution_2D_mirror(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
+-       call convolution_2D_mirror(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
++       call regul_gradient(conv_amp, conv_conv_amp, dim_y, dim_x, kernel, 3)
++       call regul_gradient(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
++       call regul_gradient(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
+ 
+        do j=1, dim_x
+           do i=1, dim_y
+diff --git a/src/mod_optimize_lym.f90 b/src/mod_optimize_lym.f90
+index b95985a..3ab4a9c 100644
+--- a/src/mod_optimize_lym.f90
++++ b/src/mod_optimize_lym.f90
+@@ -97,9 +97,9 @@ contains
+        call convolution_2D_mirror(image_mu, conv_mu, dim_y, dim_x, kernel, 3)
+        call convolution_2D_mirror(image_sig, conv_sig, dim_y, dim_x, kernel, 3)
+        
+-       call convolution_2D_mirror(conv_amp, conv_conv_amp, dim_y, dim_x, kernel, 3)
+-       call convolution_2D_mirror(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
+-       call convolution_2D_mirror(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
++       call regul_gradient(conv_amp, conv_conv_amp, dim_y, dim_x, kernel, 3)
++       call regul_gradient(conv_mu, conv_conv_mu, dim_y, dim_x, kernel, 3)
++       call regul_gradient(conv_sig, conv_conv_sig, dim_y, dim_x, kernel, 3)
+        
+        do l=1, dim_x
+           do j=1, dim_y

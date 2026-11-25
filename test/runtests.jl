@@ -11,5 +11,6 @@ using Test
     include("rohsa_layers.jl")
     include("derotate.jl")
     include("rohsa_hpc.jl")
+    include("rohsa_patches.jl")
     include("script_smoke.jl")
 end

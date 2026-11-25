@@ -1,7 +1,7 @@
-From 0989d37f89365c602dba0fa565429b9ab981bd0c Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 04:36:18 +0500
-Subject: [PATCH 7/8] OpenMP in L-BFGS-B and BLAS (results independent of the
+Subject: [PATCH] OpenMP in L-BFGS-B and BLAS (results independent of the
  thread count)
 
 The loops of L-BFGS-B over all variables run in parallel: cauchy, cmprlb,
@@ -172,10 +172,10 @@ index f190d6e..2b6e1ce 100644
  c
  c        code for increment not equal to 1
 diff --git a/src/lbfgsb.f b/src/lbfgsb.f
-index 46cfaa9..d217e9f 100644
+index 9964a8c..59418c4 100644
 --- a/src/lbfgsb.f
 +++ b/src/lbfgsb.f
-@@ -1416,6 +1416,10 @@ c     ************
+@@ -1405,6 +1405,10 @@ c     ************
       +                 f2_org
        double precision one,zero
        parameter        (one=1.0d0,zero=0.0d0)
@@ -186,7 +186,7 @@ index 46cfaa9..d217e9f 100644
   
  c     Check the status of the variables, reset iwhere(i) if necessary;
  c       compute the Cauchy direction d and the breakpoints t; initialize
-@@ -1441,11 +1445,29 @@ c     We set p to zero and build it up as we determine d.
+@@ -1430,11 +1434,29 @@ c     We set p to zero and build it up as we determine d.
           p(i) = zero
    20  continue 
  
@@ -218,7 +218,7 @@ index 46cfaa9..d217e9f 100644
           neggi = -g(i)      
           if (iwhere(i) .ne. 3 .and. iwhere(i) .ne. -1) then
  c             if x(i) is not a constant and has bounds,
-@@ -1468,21 +1490,34 @@ c              reset iwhere(i).
+@@ -1457,21 +1479,34 @@ c              reset iwhere(i).
                 if (abs(neggi) .le. zero) iwhere(i) = -3
              endif
           endif 
@@ -258,7 +258,7 @@ index 46cfaa9..d217e9f 100644
                 nbreak = nbreak + 1
                 iorder(nbreak) = i
                 t(nbreak) = tl/(-neggi)
-@@ -1492,6 +1527,7 @@ c                                 x(i) + d(i) is bounded; compute t(i).
+@@ -1481,6 +1516,7 @@ c                                 x(i) + d(i) is bounded; compute t(i).
                 endif
              else if (nbd(i) .ge. 2 .and. neggi .gt. zero) then
  c                                 x(i) + d(i) is bounded; compute t(i).
@@ -266,7 +266,7 @@ index 46cfaa9..d217e9f 100644
                 nbreak = nbreak + 1
                 iorder(nbreak) = i
                 t(nbreak) = tu/neggi
-@@ -1506,7 +1542,7 @@ c                x(i) + d(i) is not bounded.
+@@ -1495,7 +1531,7 @@ c                x(i) + d(i) is not bounded.
                 if (abs(neggi) .gt. zero) bnded = .false.
              endif
           endif
@@ -275,7 +275,7 @@ index 46cfaa9..d217e9f 100644
   
  c     The indices of the nonzero components of d are now stored
  c       in iorder(1),...,iorder(nbreak) and iorder(nfree),...,iorder(n).
-@@ -1752,32 +1788,45 @@ c
+@@ -1741,32 +1777,45 @@ c
  c     ************
   
        integer          i,j,k,pointr
@@ -329,7 +329,7 @@ index 46cfaa9..d217e9f 100644
        endif
  
        return
-@@ -1979,9 +2028,11 @@ c
+@@ -1968,9 +2017,11 @@ c
  c
  c     ************
  
@@ -343,7 +343,7 @@ index 46cfaa9..d217e9f 100644
        double precision one,zero
        parameter        (one=1.0d0,zero=0.0d0)
  
-@@ -2011,44 +2062,41 @@ c          put new rows in blocks (1,1), (2,1) and (2,2).
+@@ -2000,44 +2051,41 @@ c          put new rows in blocks (1,1), (2,1) and (2,2).
           is = m + col
           ipntr = head + col - 1
           if (ipntr .gt. m) ipntr = ipntr - m    
@@ -411,7 +411,7 @@ index 46cfaa9..d217e9f 100644
    30     continue
           upcl = col - 1
        else
-@@ -2057,57 +2105,61 @@ c             compute element i of column 'col' of R_z
+@@ -2046,57 +2094,61 @@ c             compute element i of column 'col' of R_z
   
  c       modify the old parts in blocks (1,1) and (2,2) due to changes
  c       in the set of free variables.
@@ -506,7 +506,7 @@ index 46cfaa9..d217e9f 100644
   
  c     Form the upper triangle of WN = [D+Y' ZZ'Y/theta   -L_a'+R_z' ] 
  c                                     [-L_a +R_z        S'AA'S*theta]
-@@ -2171,6 +2223,51 @@ c     Cholesky factorization of (2,2) block of wn.
+@@ -2160,6 +2212,51 @@ c     Cholesky factorization of (2,2) block of wn.
  
  c======================= The end of formk ==============================
  
@@ -558,7 +558,7 @@ index 46cfaa9..d217e9f 100644
        subroutine formt(m, wt, sy, ss, col, theta, info)
   
        integer          m, col, info
-@@ -2496,6 +2593,7 @@ c     **********
+@@ -2485,6 +2582,7 @@ c     **********
        parameter        (one=1.0d0,zero=0.0d0,big=1.0d+10)
        double precision ftol,gtol,xtol
        parameter        (ftol=1.0d-3,gtol=0.9d0,xtol=0.1d0)
@@ -566,7 +566,7 @@ index 46cfaa9..d217e9f 100644
  
        if (task(1:5) .eq. 'FG_LN') goto 556
  
-@@ -2568,9 +2666,11 @@ c                               Line search is impossible.
+@@ -2557,9 +2655,11 @@ c                               Line search is impossible.
           if (stp .eq. one) then
              call dcopy(n,z,1,x,1)
           else
@@ -578,7 +578,7 @@ index 46cfaa9..d217e9f 100644
           endif
        else
           task = 'NEW_X'
-@@ -2969,8 +3069,11 @@ c     ************
+@@ -2958,8 +3058,11 @@ c     ************
        double precision gi
        double precision one,zero
        parameter        (one=1.0d0,zero=0.0d0)
@@ -590,7 +590,7 @@ index 46cfaa9..d217e9f 100644
        do 15 i = 1, n
          gi = g(i)
          if (nbd(i) .ne. 0) then
-@@ -2982,6 +3085,7 @@ c     ************
+@@ -2971,6 +3074,7 @@ c     ************
          endif
          sbgnrm = max(sbgnrm,abs(gi))
    15  continue
@@ -598,7 +598,7 @@ index 46cfaa9..d217e9f 100644
  
        return
  
-@@ -3185,24 +3289,47 @@ c     ************
+@@ -3174,24 +3278,47 @@ c     ************
        parameter        (one=1.0d0,zero=0.0d0)
  c
        double precision dd_p
@@ -652,7 +652,7 @@ index 46cfaa9..d217e9f 100644
    20  continue
   
  c     Compute wv:=K^(-1)wv.
-@@ -3219,16 +3346,18 @@ c     Compute wv:=K^(-1)wv.
+@@ -3208,16 +3335,18 @@ c     Compute wv:=K^(-1)wv.
   
  c     Compute d = (1/theta)d + (1/theta**2)Z'W wv.
   
@@ -679,7 +679,7 @@ index 46cfaa9..d217e9f 100644
  
        call dscal( nsub, one/theta, d, 1 )
  c 
-@@ -3239,6 +3368,8 @@ c     Let us try the projection, d is the Newton direction
+@@ -3228,6 +3357,8 @@ c     Let us try the projection, d is the Newton direction
  
        call dcopy ( n, x, 1, xp, 1 )
  c
@@ -688,7 +688,7 @@ index 46cfaa9..d217e9f 100644
        do 50 i=1, nsub
           k  = ind(i)
           dk = d(i)
-@@ -3267,6 +3398,7 @@ c
+@@ -3256,6 +3387,7 @@ c
              x(k) = xk + dk
           end if 
   50   continue
@@ -696,7 +696,7 @@ index 46cfaa9..d217e9f 100644
  c
        if ( iword.eq.0 ) then
           go to 911
-@@ -3274,10 +3406,19 @@ c
+@@ -3263,10 +3395,19 @@ c
  c
  c     check sign of the directional derivative
  c
@@ -732,6 +732,3 @@ index 0000000..4b03007
 +c     in the serial code.
 +      integer nblk
 +      parameter (nblk = 65536)
--- 
-2.56.0
-

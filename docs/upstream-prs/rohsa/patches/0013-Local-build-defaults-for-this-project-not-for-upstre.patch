@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
+Date: Thu, 12 Nov 2026 13:43:32 +0500
+Subject: [PATCH] Local build defaults for this project (not for upstream)
+
+Build with -g -fbacktrace and OPENMP=1 by default, and ignore the compiled
+binary. Update the Makefile comment to say that every sum is taken in an
+order that does not depend on the number of threads. Refer to the upstream
+PR (antoinemarchal/ROHSA#10) in the comment added by the zero-padding patch.
+---
+ src/.gitignore    |  4 +++-
+ src/Makefile      | 10 +++++++---
+ src/mod_rohsa.f90 |  2 +-
+ 3 files changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/src/.gitignore b/src/.gitignore
+index 54dbf88..6f7ef10 100644
+--- a/src/.gitignore
++++ b/src/.gitignore
+@@ -2,4 +2,6 @@
+ *.dat
+ *.mod
+ *~
+-.DS_Store
+\ No newline at end of file
++.DS_Store
++# build product; rohsa.slurm rebuilds it when a source is newer
++ROHSA
+diff --git a/src/Makefile b/src/Makefile
+index be63aaa..69655a2 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -5,14 +5,18 @@ FC=gfortran
+ # GFLAGS=-Wall -Wextra -pedantic -std=f2008 -g -O2 -fno-second-underscore -Wno-compare-reals -fcheck=all -fimplicit-none -fbacktrace -gdwarf-2 -fall-intrinsics -Wno-unused-function -fcheck=bounds -I/usr/local/include
+ 
+ # GFLAGS= -O2 -I/usr/local/include -ffixed-line-length-none -Wno-uninitialized -Wall -fbounds-check
+-GFLAGS= -O2 -I/usr/local/include -ffixed-line-length-none #-fbounds-check
++GFLAGS= -O2 -g -fbacktrace -I/usr/local/include -ffixed-line-length-none #-fbounds-check
+ 
+ CFLAGS= -lm -g -O2 #-lcfitsio -openmp -llapack
+ # -L/Users/antoinemarchal/mylib/cfitsio-master
+ 
++# This project builds the OpenMP version by default (OPENMP ?= 1); upstream
++# ROHSA's default is serial. See docs/upstream-prs/rohsa.
++OPENMP ?= 1
+ # Optional OpenMP build: make OPENMP=1. Set the number of threads with
+-# OMP_NUM_THREADS. The result is bit-for-bit the same as the default serial
+-# build at any number of threads.
++# OMP_NUM_THREADS. Every sum is taken in an order that does not depend on
++# the number of threads (omp_block.h), so the result is bit-for-bit the
++# same at any OMP_NUM_THREADS and in the serial build.
+ ifeq ($(OPENMP),1)
+ GFLAGS += -fopenmp
+ CFLAGS += -fopenmp
+diff --git a/src/mod_rohsa.f90 b/src/mod_rohsa.f90
+index 05cd590..421d7a6 100644
+--- a/src/mod_rohsa.f90
++++ b/src/mod_rohsa.f90
+@@ -216,7 +216,7 @@ contains
+        call max_spectrum(data, max_spect_norm, dim_data(1), dim_data(2), dim_data(3), maxval(mean_spect))
+ 
+        !The padded part of the grid (map size not a power of two) is not data: set it to 0, as reshape_up only fills
+-       !the data part and an allocated array is not initialised
++       !the data part and an allocated array is not initialised (upstream antoinemarchal/ROHSA#10)
+        cube = 0._xp
+        std_cube = 0._xp
+        call reshape_up(data, cube, dim_data, dim_cube)

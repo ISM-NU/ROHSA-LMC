@@ -21,7 +21,7 @@ Use Julia where performance needs it. Simple scripts can be Python.
 - ROHSA defaults (`lambda` terms, `n_gauss`, bounds, noise handling, iteration limits, smoothing) are science settings. A change needs a stated reason and a validation, and goes through the docs.
 - Do not change what a product means (amplitude, width, centre, layer split) without a documented decision. Experiment repos pin this repo and compare runs across versions.
 - Keep parity checks: a speed change must reproduce the previous fit within the tolerance in `docs/validation/rohsa-openmp-parity-2026-10-17.md`.
-- Keep the vendored Fortran in sync with `docs/upstream-prs/rohsa`. If you patch `rohsa/upstream/ROHSA`, update the matching patch and text there, and the reverse.
+- `rohsa/upstream/ROHSA` is the upstream base (ab4f299) plus the series in `docs/upstream-prs/rohsa/patches`. If you change the vendored Fortran, add a patch at the end of the series and update the text in `docs/upstream-prs/rohsa`. `scripts/check_rohsa_patches.sh` fails on any difference and runs in CI.
 - Do not treat a smoother or prettier decomposition as a better one.
 
 ## Data and Slurm

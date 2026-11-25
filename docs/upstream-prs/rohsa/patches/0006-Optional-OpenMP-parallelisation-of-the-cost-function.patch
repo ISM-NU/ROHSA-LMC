@@ -1,7 +1,7 @@
-From 734a1d0e8b97853c7e6a964e877e154dc36e1c39 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 04:33:20 +0500
-Subject: [PATCH 5/6] Optional OpenMP parallelisation of the cost function
+Subject: [PATCH] Optional OpenMP parallelisation of the cost function
 
 `make OPENMP=1` builds ROHSA with OpenMP; the default build is unchanged
 (the directives are comments to a compiler without -fopenmp).
@@ -361,6 +361,3 @@ index b494bcd..2c59e1f 100644
  
    end subroutine f_g_cube_fast
  
--- 
-2.56.0
-

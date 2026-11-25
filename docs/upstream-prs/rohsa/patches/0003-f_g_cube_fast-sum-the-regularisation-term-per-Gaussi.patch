@@ -1,7 +1,7 @@
-From a31cfb6ec11129f32f2de43f03f28e2cc9254d63 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
 Date: Sat, 17 Oct 2026 19:50:37 +0500
-Subject: [PATCH 2/3] f_g_cube_fast: sum the regularisation term per Gaussian
+Subject: [PATCH] f_g_cube_fast: sum the regularisation term per Gaussian
 
 The smoothness and width-uniformity terms of each Gaussian are summed in
 a local variable and added to f once per Gaussian, instead of being added
@@ -10,7 +10,6 @@ the same result on one thread as the serial code.
 
 The objective changes only by rounding (the grouping of a floating-point
 sum); the gradient is unchanged.
-
 ---
  src/mod_optimize.f90 | 17 ++++++++++++-----
  1 file changed, 12 insertions(+), 5 deletions(-)
@@ -61,6 +60,3 @@ index cdb4c05..74ab1a4 100644
      end do        
      
      call ravel_3D(deriv, g, 3*n_gauss, dim_y, dim_x)
--- 
-2.56.0
-

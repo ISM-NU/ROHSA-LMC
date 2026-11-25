@@ -1,8 +1,8 @@
-From cc2f75fc7ddd46f6fea8df43f93c3c263ef762b8 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 22:46:06 +0500
-Subject: [PATCH 8/8] L-BFGS-B: breakpoint list and step bound in parallel
- (same result)
+Subject: [PATCH] L-BFGS-B: breakpoint list and step bound in parallel (same
+ result)
 
 cauchy: the loop that builds the breakpoint list runs in two parallel
 passes over blocks of nblk variables. The first counts the breakpoints and
@@ -21,10 +21,10 @@ Output is bit-for-bit the same as before at any thread count.
  1 file changed, 98 insertions(+), 30 deletions(-)
 
 diff --git a/src/lbfgsb.f b/src/lbfgsb.f
-index d217e9f..bd4c310 100644
+index 59418c4..c39200a 100644
 --- a/src/lbfgsb.f
 +++ b/src/lbfgsb.f
-@@ -1417,9 +1417,13 @@ c     ************
+@@ -1406,9 +1406,13 @@ c     ************
        double precision one,zero
        parameter        (one=1.0d0,zero=0.0d0)
        include 'omp_block.h'
@@ -39,7 +39,7 @@ index d217e9f..bd4c310 100644
   
  c     Check the status of the variables, reset iwhere(i) if necessary;
  c       compute the Cauchy direction d and the breakpoints t; initialize
-@@ -1511,38 +1515,83 @@ c             calculate p := p - W'e_i* (g_i).
+@@ -1500,38 +1504,83 @@ c             calculate p := p - W'e_i* (g_i).
    53     continue
    54  continue
  
@@ -143,7 +143,7 @@ index d217e9f..bd4c310 100644
   
  c     The indices of the nonzero components of d are now stored
  c       in iorder(1),...,iorder(nbreak) and iorder(nfree),...,iorder(n).
-@@ -2587,13 +2636,15 @@ c
+@@ -2576,13 +2625,15 @@ c
  c
  c     **********
  
@@ -160,7 +160,7 @@ index d217e9f..bd4c310 100644
  
        if (task(1:5) .eq. 'FG_LN') goto 556
  
-@@ -2607,26 +2658,43 @@ c     Determine the maximum step length.
+@@ -2596,26 +2647,43 @@ c     Determine the maximum step length.
           if (iter .eq. 0) then
              stpmx = one
           else
@@ -212,6 +212,3 @@ index d217e9f..bd4c310 100644
           endif
        endif
   
--- 
-2.56.0
-
