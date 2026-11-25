@@ -198,11 +198,11 @@ using Random
         @test occursin("lambda_mu = 100.0d0", text)
         @test occursin("sig_init = 4.0d0", text)
         @test occursin("noise = .false.", text)
-        # Off by default and then not written, so ROHSA binaries without the switch still read the file.
-        @test !occursin("regul_grad_adjoint", text)
+        # On by default. "false" writes nothing, so ROHSA binaries without the switch still read the file.
+        @test occursin("regul_grad_adjoint = .true.", text)
         wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, 6,
-                                       merge(override_opts, Dict("regul-grad-adjoint" => "true")))
-        @test occursin("regul_grad_adjoint = .true.", read(params_path, String))
+                                       merge(override_opts, Dict("regul-grad-adjoint" => "false")))
+        @test !occursin("regul_grad_adjoint", read(params_path, String))
     end
 
     # Per-pixel noise map for ROHSA: header "ny nx", rows "y x sigma" (0-based), bad pixels written as 0

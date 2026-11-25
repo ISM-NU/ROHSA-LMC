@@ -98,10 +98,11 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     # it turns zero-mean noise into a positive pedestal that ROHSA fits with
     # broad components. NaNs are always written as 0.
     "clip-negative" => "true",
-    # Exact gradient of ROHSA's smoothing term at map edges (mod_array.f90 regul_grad_adjoint). Off by
-    # default so existing runs stay reproducible; the original code is wrong in the two outer rows and
-    # columns of every level. Emitted only when true, so older ROHSA binaries still read the namelist.
-    "regul-grad-adjoint" => "false",
+    # Exact gradient of ROHSA's smoothing term at map edges (mod_array.f90 regul_grad_adjoint). The
+    # original code is wrong in the two outer rows and columns of every level. On by default since
+    # 2026-11-25 (same fix as antoinemarchal/ROHSA-FITS#4); set "false" to reproduce runs made before.
+    # Emitted only when true, so "false" also works with ROHSA binaries that lack the switch.
+    "regul-grad-adjoint" => "true",
     # Per-pixel noise for ROHSA (2D FITS, crop-sized, Julia x-y order). Empty = one level from the cube
     # (robust_channel_difference_noise). Pixels with NaN or <= 0 are written as 0, which ROHSA skips in the data
     # term at the full-resolution level (their parameters follow the smoothing term): used for held-out blocks.
@@ -211,7 +212,7 @@ function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_pa
         println(io, "    ,iprint = $(parse(Int, opts["iprint"]))")
         println(io, "    ,iprint_init = $(parse(Int, opts["iprint-init"]))")
         println(io, "    ,save_grid = $(fortran_bool(opts["save-grid"]))")
-        if parse_bool(get(opts, "regul-grad-adjoint", "false"))
+        if parse_bool(get(opts, "regul-grad-adjoint", "true"))
             println(io, "    ,regul_grad_adjoint = .true.")
         end
         println(io, "    /")
