@@ -13,6 +13,18 @@ module mod_array
   !! so D D x (the original code) is wrong there (all pixels of a 4x4 level, 44% of a 16x16 one).
   !! .true. uses the exact adjoint; .false. keeps the original behaviour for comparison with old runs.
   logical, public :: regul_grad_adjoint = .false.
+
+  !! Budget study switches (all off by default, so a run without them is unchanged).
+  !! maxiter_last > 0: evaluation limit of the full-resolution level only; the coarser levels keep maxiter.
+  !! checkpoint_at: evaluation counts of the full-resolution fit at which the parameters are written to
+  !! <checkpoint_prefix>_e<evals>.ckpt (the first accepted iterate with at least that many evaluations,
+  !! which is exactly the iterate a run with that limit would stop at). With checkpoint_prefix set, every
+  !! accepted iterate of that level also prints one "trajectory" line (evaluations, cost, projected gradient).
+  !! ckpt_level_active is set by mod_rohsa around the full-resolution update only.
+  integer, public :: maxiter_last = 0
+  integer, public :: checkpoint_at(64) = 0
+  character(len=512), public :: checkpoint_prefix = ''
+  logical, public :: ckpt_level_active = .false.
   
   
 contains

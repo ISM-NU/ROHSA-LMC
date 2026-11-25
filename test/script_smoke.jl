@@ -22,7 +22,7 @@ using Random
     @test wrapper.upstream_rohsa_source_dir() == normpath(joinpath(@__DIR__, "..", "rohsa", "upstream", "ROHSA"))
     @test wrapper.upstream_rohsa_binary() == joinpath(wrapper.upstream_rohsa_source_dir(), "src", "ROHSA")
 
-    override_cfg, no_adjoint_cfg = mktempdir() do dir
+    override_cfg, no_adjoint_cfg, budget_cfg = mktempdir() do dir
         config_text = """
         [input]
         input = "data/exp_raw/component.fits"
@@ -65,7 +65,9 @@ using Random
             write(config_path, text)
             wrapper.parse_args(["--config", config_path])
         end
-        load(config_text), load(config_text * "regul_grad_adjoint = false\n")
+        @test_throws ArgumentError load(config_text * "checkpoint_at = [0]\n")
+        load(config_text), load(config_text * "regul_grad_adjoint = false\n"),
+        load(config_text * "maxiter_last = 5000\ncheckpoint_at = [800, 100]\n")
     end
     @test override_cfg.n_gauss == [4, 6]
     @test override_cfg.lambda_amp == 250.0
@@ -212,6 +214,14 @@ using Random
         @test occursin("regul_grad_adjoint = .true.", text)
         wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, no_adjoint_cfg, cand)
         @test !occursin("regul_grad_adjoint", read(params_path, String))
+        # Budget-study switches: absent unless set; checkpoints go next to the output, sorted.
+        @test !occursin("maxiter_last", text) && !occursin("checkpoint", text)
+        @test budget_cfg.maxiter_last == 5000 && budget_cfg.checkpoint_at == [100, 800]
+        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, budget_cfg, cand)
+        text = read(params_path, String)
+        @test occursin("maxiter_last = 5000", text)
+        @test occursin("checkpoint_at = 100,800", text)
+        @test occursin("checkpoint_prefix = '$(joinpath(dir, "checkpoints", "rohsa_n6"))'", text)
     end
 
     # Per-pixel noise map for ROHSA: header "ny nx", rows "y x sigma" (0-based), bad pixels written as 0

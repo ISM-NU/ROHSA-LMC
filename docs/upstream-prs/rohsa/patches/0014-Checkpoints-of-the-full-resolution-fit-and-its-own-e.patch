@@ -1,0 +1,149 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 10:00:00 +0500
+Subject: [PATCH] Checkpoints of the full-resolution fit and its own evaluation limit (not for upstream)
+
+maxiter is an evaluation limit applied at every multiresolution level, and
+only the driver checks it (at NEW_X); it never enters L-BFGS-B. A run with a
+larger limit therefore passes through exactly the iterates of a shorter one.
+
+maxiter_last sets the limit of the full-resolution level only. checkpoint_at
+lists evaluation counts at which that level's parameters are written to
+<checkpoint_prefix>_e<k>.ckpt, and each accepted iterate of that level prints
+a trajectory line (evaluations, cost, projected gradient). All off by default.
+---
+ src/mod_array.f90    | 12 ++++++++++++
+ src/mod_inout.f90    |  5 +++--
+ src/mod_minimize.f90 | 34 ++++++++++++++++++++++++++++++++++
+ src/mod_rohsa.f90    |  8 ++++++--
+ 4 files changed, 55 insertions(+), 4 deletions(-)
+
+diff --git a/src/mod_array.f90 b/src/mod_array.f90
+index fec721b..a322f19 100644
+--- a/src/mod_array.f90
++++ b/src/mod_array.f90
+@@ -13,6 +13,18 @@ module mod_array
+   !! so D D x (the original code) is wrong there (all pixels of a 4x4 level, 44% of a 16x16 one).
+   !! .true. uses the exact adjoint; .false. keeps the original behaviour for comparison with old runs.
+   logical, public :: regul_grad_adjoint = .false.
++
++  !! Budget study switches (all off by default, so a run without them is unchanged).
++  !! maxiter_last > 0: evaluation limit of the full-resolution level only; the coarser levels keep maxiter.
++  !! checkpoint_at: evaluation counts of the full-resolution fit at which the parameters are written to
++  !! <checkpoint_prefix>_e<evals>.ckpt (the first accepted iterate with at least that many evaluations,
++  !! which is exactly the iterate a run with that limit would stop at). With checkpoint_prefix set, every
++  !! accepted iterate of that level also prints one "trajectory" line (evaluations, cost, projected gradient).
++  !! ckpt_level_active is set by mod_rohsa around the full-resolution update only.
++  integer, public :: maxiter_last = 0
++  integer, public :: checkpoint_at(64) = 0
++  character(len=512), public :: checkpoint_prefix = ''
++  logical, public :: ckpt_level_active = .false.
+   
+   
+ contains
+diff --git a/src/mod_inout.f90 b/src/mod_inout.f90
+index 026eb43..c45b0ac 100644
+--- a/src/mod_inout.f90
++++ b/src/mod_inout.f90
+@@ -3,7 +3,7 @@ module mod_inout
+   !! This module read the input user parameters (parameters.txt file / data / noise if true)
+   use mod_constants
+   use mod_convert
+-  use mod_array, only: regul_grad_adjoint
++  use mod_array, only: regul_grad_adjoint, maxiter_last, checkpoint_at, checkpoint_prefix
+   
+   implicit none
+   
+@@ -49,7 +49,8 @@ contains
+     namelist /user_parameters/ filename, fileout, timeout, filename_noise, filename_init_spec, n_gauss, lambda_amp, &
+          lambda_mu, lambda_sig, lambda_var_amp, lambda_var_mu, lambda_var_sig, lambda_lym_sig, amp_fact_init, &
+          sig_init, lb_sig_init, ub_sig_init, lb_sig, ub_sig, init_option, maxiter_init, maxiter, m, noise, regul, &
+-         descent, lstd, ustd, iprint, iprint_init, save_grid, lym, init_grid, fileinit, init_spec, regul_grad_adjoint
++         descent, lstd, ustd, iprint, iprint_init, save_grid, lym, init_grid, fileinit, init_spec, regul_grad_adjoint, &
++         maxiter_last, checkpoint_at, checkpoint_prefix
+     
+     open(unit=11, file=filename_parameters, status="old", iostat=ios)
+     if (ios /= 0) stop "opening file error"
+diff --git a/src/mod_minimize.f90 b/src/mod_minimize.f90
+index 353f03c..220010c 100644
+--- a/src/mod_minimize.f90
++++ b/src/mod_minimize.f90
+@@ -125,12 +125,14 @@ contains
+     real(xp)               :: dsave(29)
+     integer,  dimension(:), allocatable  :: nbd, iwa
+     real(xp), dimension(:), allocatable  :: g, wa
++    logical :: ckpt_done(size(checkpoint_at))
+     
+     !     Allocate dynamic arrays
+     allocate(nbd(n), g(n))
+     allocate(iwa(3*n))
+     allocate(wa(2_8*m*n + 5_8*n + 11*m*m + 8*m)) ! 64-bit size: 2*m*n can exceed 2**31
+ 
++    ckpt_done = .false.
+     f = 0._xp
+     g = 0._xp
+ 
+@@ -158,6 +160,8 @@ contains
+           end if
+           
+        elseif (task(1:5) .eq. 'NEW_X') then
++          if (ckpt_level_active .and. len_trim(checkpoint_prefix) > 0) &
++               call write_checkpoints(x, n, n_gauss, dim_y, dim_x, f, isave(30), isave(34), dsave(13), ckpt_done)
+           !        1) Terminate if the total number of f and g evaluations
+           !             exceeds maxiter.
+           if (isave(34) .ge. maxiter) &
+@@ -180,4 +184,34 @@ contains
+     deallocate(wa)
+   end subroutine minimize
+ 
++  ! Budget study: one trajectory line per accepted iterate, and the parameters at the requested evaluation
++  ! counts (mod_array checkpoint_at). File layout (stream, native endian): int64 n_gauss, dim_y, dim_x, evals,
++  ! iter; float64 f, projg; float64 x(n) in update()'s ravel order (3*n_gauss fastest, then y, then x; then the
++  ! n_gauss b_params). RohsaLMC.read_rohsa_checkpoint reads it.
++  subroutine write_checkpoints(x, n, n_gauss, dim_y, dim_x, f, iter, evals, projg, done)
++    implicit none
++    integer, intent(in) :: n, n_gauss, dim_y, dim_x, iter, evals
++    real(xp), intent(in) :: x(:)
++    real(xp), intent(in) :: f, projg
++    logical, intent(inout) :: done(:)
++    integer :: k, u, ios
++    character(len=600) :: path
++
++    write(*,'(a,i0,a,i0,a,es22.15,a,es10.3)') " trajectory iter=", iter, " evals=", evals, " f=", f, " projg=", projg
++    do k = 1, size(checkpoint_at)
++       if (checkpoint_at(k) <= 0 .or. done(k)) cycle
++       if (evals < checkpoint_at(k)) cycle
++       done(k) = .true.
++       write(path,'(a,a,i0,a)') trim(checkpoint_prefix), "_e", checkpoint_at(k), ".ckpt"
++       open(newunit=u, file=trim(path), access="stream", form="unformatted", status="replace", action="write", iostat=ios)
++       if (ios /= 0) then
++          print*, "checkpoint: cannot open ", trim(path)
++          cycle
++       end if
++       write(u) int(n_gauss,8), int(dim_y,8), int(dim_x,8), int(evals,8), int(iter,8), f, projg, x(1:n)
++       close(u)
++       write(*,'(a,i0,a,i0,2a)') " checkpoint at=", checkpoint_at(k), " evals=", evals, " file=", trim(path)
++    end do
++  end subroutine write_checkpoints
++
+ end module mod_minimize
+diff --git a/src/mod_rohsa.f90 b/src/mod_rohsa.f90
+index 421d7a6..32142eb 100644
+--- a/src/mod_rohsa.f90
++++ b/src/mod_rohsa.f90
+@@ -389,9 +389,13 @@ contains
+     end if
+     
+     if (regul .eqv. .true.) then
++       ! Budget study (mod_array): the full-resolution level may have its own limit and write checkpoints.
++       if (maxiter_last > 0) print*, "maxiter_last = ", maxiter_last
++       ckpt_level_active = .true.
+        call update(data, grid_params, b_params, n_gauss, dim_data(1), dim_data(2), dim_data(3), lambda_amp, lambda_mu, &
+-            lambda_sig, lambda_var_amp, lambda_var_mu, lambda_var_sig, lambda_lym_sig, lb_sig, ub_sig, maxiter, m, &
+-            kernel, iprint, std_map, lym, c_lym)      
++            lambda_sig, lambda_var_amp, lambda_var_mu, lambda_var_sig, lambda_lym_sig, lb_sig, ub_sig, &
++            merge(maxiter_last, maxiter, maxiter_last > 0), m, kernel, iprint, std_map, lym, c_lym)
++       ckpt_level_active = .false.
+     end if
+     
+     print*, " "

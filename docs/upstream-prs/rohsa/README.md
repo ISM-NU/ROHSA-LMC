@@ -33,7 +33,11 @@ PR contains the patches of the PRs it needs). 0011 is upstream
 antoinemarchal/ROHSA#10 verbatim. 0012 (exact smoothing-term gradient at map
 edges, stop-reason log) is not part of any PR yet. 0013 holds this project's
 build defaults, plus the one comment line that points the vendored copy of 0011
-at its upstream PR; it is not for upstream. Applying all thirteen gives
+at its upstream PR; it is not for upstream. 0014 is also local only: a separate
+evaluation limit for the full-resolution level (`maxiter_last`) and parameter
+checkpoints of that level at chosen evaluation counts (`checkpoint_at`), both off
+by default, so a budget curve is read off one long run (test:
+`test/rohsa_checkpoint.jl`). Applying all fourteen gives
 `rohsa/upstream/ROHSA` exactly; `scripts/check_rohsa_patches.sh` checks that
 and runs in CI.
 

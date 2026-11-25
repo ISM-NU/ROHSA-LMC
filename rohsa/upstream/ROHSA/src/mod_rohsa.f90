@@ -389,9 +389,13 @@ contains
     end if
     
     if (regul .eqv. .true.) then
+       ! Budget study (mod_array): the full-resolution level may have its own limit and write checkpoints.
+       if (maxiter_last > 0) print*, "maxiter_last = ", maxiter_last
+       ckpt_level_active = .true.
        call update(data, grid_params, b_params, n_gauss, dim_data(1), dim_data(2), dim_data(3), lambda_amp, lambda_mu, &
-            lambda_sig, lambda_var_amp, lambda_var_mu, lambda_var_sig, lambda_lym_sig, lb_sig, ub_sig, maxiter, m, &
-            kernel, iprint, std_map, lym, c_lym)      
+            lambda_sig, lambda_var_amp, lambda_var_mu, lambda_var_sig, lambda_lym_sig, lb_sig, ub_sig, &
+            merge(maxiter_last, maxiter, maxiter_last > 0), m, kernel, iprint, std_map, lym, c_lym)
+       ckpt_level_active = .false.
     end if
     
     print*, " "

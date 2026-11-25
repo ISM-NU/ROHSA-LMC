@@ -44,6 +44,8 @@ const ROHSA_CONFIG_KEYS = Dict(
     "init_option" => "init-option",
     "maxiter_init" => "maxiter-init",
     "maxiter" => "maxiter",
+    "maxiter_last" => "maxiter-last",
+    "checkpoint_at" => "checkpoint-at",
     "m" => "m",
     "noise" => "rohsa-noise",
     "regul" => "regul",
@@ -103,6 +105,11 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     # 2026-11-25 (same fix as antoinemarchal/ROHSA-FITS#4); set "false" to reproduce runs made before.
     # Emitted only when true, so "false" also works with ROHSA binaries that lack the switch.
     "regul-grad-adjoint" => "true",
+    # Budget study (mod_array.f90): evaluation limit of the full-resolution level only (0 = maxiter), and
+    # evaluation counts at which that level's parameters are written to <run>/checkpoints/<run label>_e<k>.ckpt
+    # (read with read_rohsa_checkpoint). Emitted only when set, so older binaries still read the namelist.
+    "maxiter-last" => "0",
+    "checkpoint-at" => "",
     # Per-pixel noise for ROHSA (2D FITS, crop-sized, Julia x-y order). Empty = one level from the cube
     # (robust_channel_difference_noise). Pixels with NaN or <= 0 are written as 0, which ROHSA skips in the data
     # term at the full-resolution level (their parameters follow the smoothing term): used for held-out blocks.
@@ -142,6 +149,14 @@ end
 fortran_bool(flag::Bool) = flag ? ".true." : ".false."
 
 list_items(raw::AbstractString) = [strip(part) for part in split(raw, ",") if !isempty(strip(part))]
+
+# Evaluation counts for checkpoint_at: at most 64 (mod_array.f90), positive, written in ascending order.
+function parse_checkpoint_at(raw::AbstractString)
+    vals = parse.(Int, list_items(raw))
+    length(vals) <= 64 || throw(ArgumentError("checkpoint_at takes at most 64 values"))
+    all(>(0), vals) || throw(ArgumentError("checkpoint_at values must be positive"))
+    return sort(unique(vals))
+end
 
 function parse_int_list(raw::AbstractString)
     vals = parse.(Int, list_items(raw))
@@ -212,6 +227,8 @@ Base.@kwdef struct RohsaConfig
     init_option::String
     maxiter_init::Int
     maxiter::Int
+    maxiter_last::Int  # 0: the full-resolution level keeps maxiter
+    checkpoint_at::Vector{Int}
     m::Int
     noise::Bool
     regul::Bool
@@ -294,6 +311,8 @@ function RohsaConfig(o::Dict{String, String})
         init_option=o["init-option"],
         maxiter_init=getint("maxiter-init"),
         maxiter=getint("maxiter"),
+        maxiter_last=getint("maxiter-last"),
+        checkpoint_at=parse_checkpoint_at(o["checkpoint-at"]),
         m=getint("m"),
         noise=getflag("rohsa-noise"),
         regul=getflag("regul"),
@@ -390,6 +409,13 @@ function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_pa
         println(io, "    ,save_grid = $(fortran_bool(cfg.save_grid))")
         if cfg.regul_grad_adjoint
             println(io, "    ,regul_grad_adjoint = .true.")
+        end
+        cfg.maxiter_last > 0 && println(io, "    ,maxiter_last = $(cfg.maxiter_last)")
+        if !isempty(cfg.checkpoint_at)
+            ckpt_dir = joinpath(dirname(abspath(out_path)), "checkpoints")
+            mkpath(ckpt_dir)
+            println(io, "    ,checkpoint_at = $(join(cfg.checkpoint_at, ","))")
+            println(io, "    ,checkpoint_prefix = '$(joinpath(ckpt_dir, "$(rohsa_run_label(cand))"))'")
         end
         println(io, "    /")
     end

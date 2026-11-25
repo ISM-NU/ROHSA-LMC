@@ -125,12 +125,14 @@ contains
     real(xp)               :: dsave(29)
     integer,  dimension(:), allocatable  :: nbd, iwa
     real(xp), dimension(:), allocatable  :: g, wa
+    logical :: ckpt_done(size(checkpoint_at))
     
     !     Allocate dynamic arrays
     allocate(nbd(n), g(n))
     allocate(iwa(3*n))
     allocate(wa(2_8*m*n + 5_8*n + 11*m*m + 8*m)) ! 64-bit size: 2*m*n can exceed 2**31
 
+    ckpt_done = .false.
     f = 0._xp
     g = 0._xp
 
@@ -158,6 +160,8 @@ contains
           end if
           
        elseif (task(1:5) .eq. 'NEW_X') then
+          if (ckpt_level_active .and. len_trim(checkpoint_prefix) > 0) &
+               call write_checkpoints(x, n, n_gauss, dim_y, dim_x, f, isave(30), isave(34), dsave(13), ckpt_done)
           !        1) Terminate if the total number of f and g evaluations
           !             exceeds maxiter.
           if (isave(34) .ge. maxiter) &
@@ -179,5 +183,35 @@ contains
     deallocate(iwa)
     deallocate(wa)
   end subroutine minimize
+
+  ! Budget study: one trajectory line per accepted iterate, and the parameters at the requested evaluation
+  ! counts (mod_array checkpoint_at). File layout (stream, native endian): int64 n_gauss, dim_y, dim_x, evals,
+  ! iter; float64 f, projg; float64 x(n) in update()'s ravel order (3*n_gauss fastest, then y, then x; then the
+  ! n_gauss b_params). RohsaLMC.read_rohsa_checkpoint reads it.
+  subroutine write_checkpoints(x, n, n_gauss, dim_y, dim_x, f, iter, evals, projg, done)
+    implicit none
+    integer, intent(in) :: n, n_gauss, dim_y, dim_x, iter, evals
+    real(xp), intent(in) :: x(:)
+    real(xp), intent(in) :: f, projg
+    logical, intent(inout) :: done(:)
+    integer :: k, u, ios
+    character(len=600) :: path
+
+    write(*,'(a,i0,a,i0,a,es22.15,a,es10.3)') " trajectory iter=", iter, " evals=", evals, " f=", f, " projg=", projg
+    do k = 1, size(checkpoint_at)
+       if (checkpoint_at(k) <= 0 .or. done(k)) cycle
+       if (evals < checkpoint_at(k)) cycle
+       done(k) = .true.
+       write(path,'(a,a,i0,a)') trim(checkpoint_prefix), "_e", checkpoint_at(k), ".ckpt"
+       open(newunit=u, file=trim(path), access="stream", form="unformatted", status="replace", action="write", iostat=ios)
+       if (ios /= 0) then
+          print*, "checkpoint: cannot open ", trim(path)
+          cycle
+       end if
+       write(u) int(n_gauss,8), int(dim_y,8), int(dim_x,8), int(evals,8), int(iter,8), f, projg, x(1:n)
+       close(u)
+       write(*,'(a,i0,a,i0,2a)') " checkpoint at=", checkpoint_at(k), " evals=", evals, " file=", trim(path)
+    end do
+  end subroutine write_checkpoints
 
 end module mod_minimize
