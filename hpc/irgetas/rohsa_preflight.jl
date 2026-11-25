@@ -4,6 +4,7 @@ using VGT
 using RohsaLMC
 include(joinpath(@__DIR__, "..", "..", "rohsa", "memory.jl"))
 include(joinpath(@__DIR__, "..", "..", "rohsa", "configs.jl"))
+include(joinpath(@__DIR__, "..", "..", "rohsa", "auto_config.jl"))
 
 const IRGETAS_ZEN4_USABLE_GIB = 385_974 / 1024
 const IRGETAS_H100_USABLE_GIB = 770_000 / 1024
@@ -27,7 +28,9 @@ function inspect_config(config_path::AbstractString)
     source_ny = cfg.crop_size > 0 ? cfg.crop_size : ny
     out_nx = cld(source_nx, cfg.spatial_stride)
     out_ny = cld(source_ny, cfg.spatial_stride)
-    estimate = rohsa_memory_estimate(out_nx, out_ny, nv, maximum(cfg.n_gauss), cfg.m)
+    # The job must fit the largest candidate: the [auto_config] n_gauss axis can exceed [rohsa] n_gauss.
+    max_n = maximum(c.n_gauss for c in resolved_rohsa_candidates(cfg))
+    estimate = rohsa_memory_estimate(out_nx, out_ny, nv, max_n, cfg.m)
     return (; cfg, nx=out_nx, ny=out_ny, nv, estimate,
             partition=irgetas_partition(estimate.peak_gib))
 end

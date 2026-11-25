@@ -1,3 +1,5 @@
+using FITSIO
+
 module RohsaIrgetasPreflightTest
     include(joinpath(@__DIR__, "..", "hpc", "irgetas", "rohsa_preflight.jl"))
 end
@@ -53,4 +55,34 @@ end
     override = submitted_sbatch_args(["crop_size = 512", "n_gauss = [8]"]; env=("MEM" => "50G", "CPUS" => "8"))
     @test override["--mem"] == "50G"
     @test override["--cpus-per-task"] == "8"
+end
+
+# inspect_config on a tiny cube: the estimate must cover the largest candidate N,
+# which the [auto_config] n_gauss axis can raise above [rohsa] n_gauss.
+function preflight_estimate(auto_axis)
+    mktempdir() do dir
+        input = joinpath(dir, "cube.fits")
+        f = FITS(input, "w")
+        try
+            write(f, zeros(Float32, 16, 16, 8))
+        finally
+            close(f)
+        end
+        toml = read(joinpath(@__DIR__, "..", "configs", "rohsa", "full_cube.toml"), String)
+        toml = replace(toml, r"^input = .*$"m => "input = \"$input\"")
+        isempty(auto_axis) || (toml = replace(toml, "[auto_config]\nenabled = false\n" =>
+                                              "[auto_config]\nenabled = true\nn_gauss = $auto_axis\n"))
+        config = joinpath(dir, "run.toml")
+        write(config, toml)
+        return RohsaIrgetasPreflightTest.inspect_config(config)
+    end
+end
+
+@testset "ROHSA preflight sizes from the largest candidate N" begin
+    est(n) = RohsaIrgetasPreflightTest.rohsa_memory_estimate(16, 16, 8, n, 10)
+    plain = preflight_estimate("")
+    @test plain.estimate == est(6)
+    swept = preflight_estimate("[4, 6, 8]")
+    @test swept.estimate == est(8)
+    @test swept.estimate.peak_gib > plain.estimate.peak_gib
 end
