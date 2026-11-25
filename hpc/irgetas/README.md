@@ -57,7 +57,7 @@ CPUs mostly sit idle.
 
 ### Resources
 
-`submit_rohsa.sh` picks these from `crop_size` and `n_gauss`; override with
+`submit_rohsa.sh` picks these from `crop_size` and the largest N of the run (the whole `[auto_config]` sweep counts); override with
 `CPUS=`, `MEM=` or `TIME=` in front of the command.
 
 | Run | CPUs | Measured peak memory | Measured wall time | Requested |
