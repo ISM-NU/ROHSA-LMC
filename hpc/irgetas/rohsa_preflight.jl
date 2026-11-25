@@ -16,22 +16,19 @@ function irgetas_partition(peak_gib::Real)
 end
 
 function inspect_config(config_path::AbstractString)
-    opts = load_rohsa_config(config_path)
-    f = FITS(opts["input"], "r")
+    cfg = load_rohsa_config(config_path)
+    f = FITS(cfg.input, "r")
     nx, ny, nv = try
         size(f[1])
     finally
         close(f)
     end
-    crop = parse(Int, opts["crop-size"])
-    stride = parse(Int, opts["spatial-stride"])
-    source_nx = crop > 0 ? crop : nx
-    source_ny = crop > 0 ? crop : ny
-    out_nx = cld(source_nx, stride)
-    out_ny = cld(source_ny, stride)
-    ns = parse.(Int, split(opts["n-gauss"], ','))
-    estimate = rohsa_memory_estimate(out_nx, out_ny, nv, maximum(ns), parse(Int, opts["m"]))
-    return (; opts, nx=out_nx, ny=out_ny, nv, estimate,
+    source_nx = cfg.crop_size > 0 ? cfg.crop_size : nx
+    source_ny = cfg.crop_size > 0 ? cfg.crop_size : ny
+    out_nx = cld(source_nx, cfg.spatial_stride)
+    out_ny = cld(source_ny, cfg.spatial_stride)
+    estimate = rohsa_memory_estimate(out_nx, out_ny, nv, maximum(cfg.n_gauss), cfg.m)
+    return (; cfg, nx=out_nx, ny=out_ny, nv, estimate,
             partition=irgetas_partition(estimate.peak_gib))
 end
 

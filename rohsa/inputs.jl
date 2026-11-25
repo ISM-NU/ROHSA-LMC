@@ -14,9 +14,9 @@ Base.@kwdef struct InputRegion
     y_stride::Int = 1
 end
 
-function region_from_options(input::AbstractString, image_nx::Int, image_ny::Int, opts)
-    crop_size = parse(Int, opts["crop-size"])
-    spatial_stride = parse(Int, opts["spatial-stride"])
+function region_from_config(cfg, image_nx::Int, image_ny::Int)
+    crop_size = cfg.crop_size
+    spatial_stride = cfg.spatial_stride
     spatial_stride >= 1 ||
         throw(ArgumentError("--spatial-stride must be >= 1, got $spatial_stride"))
     if crop_size <= 0
@@ -39,8 +39,8 @@ function region_from_options(input::AbstractString, image_nx::Int, image_ny::Int
 
     crop_size <= min(image_nx, image_ny) ||
         throw(ArgumentError("--crop-size must fit inside input image dimensions ($image_nx, $image_ny)"))
-    x0 = parse(Int, opts["crop-x0"])
-    y0 = parse(Int, opts["crop-y0"])
+    x0 = cfg.crop_x0
+    y0 = cfg.crop_y0
     1 <= x0 <= image_nx - crop_size + 1 ||
         throw(ArgumentError("--crop-x0=$x0 does not fit crop size $crop_size inside image width $image_nx"))
     1 <= y0 <= image_ny - crop_size + 1 ||
@@ -60,16 +60,18 @@ function region_from_options(input::AbstractString, image_nx::Int, image_ny::Int
     )
 end
 
-function maybe_reused_region(output_dir::AbstractString, opts, image_nx::Int, image_ny::Int)
-    manifest_path = joinpath(output_dir, "manifest.toml")
-    region_path = joinpath(output_dir, "region_selection.csv")
+function maybe_reused_region(cfg, image_nx::Int, image_ny::Int)
+    manifest_path = joinpath(cfg.output_dir, "manifest.toml")
+    region_path = joinpath(cfg.output_dir, "region_selection.csv")
     (isfile(manifest_path) && isfile(region_path)) || return nothing
     manifest = TOML.parsefile(manifest_path)
     old_opts = get(manifest, "options", Dict{String, Any}())
     # Only reuse a previous region when the geometry-defining options match.
     # ROHSA parameters may change without changing the input selection.
-    for key in ("input", "crop-size", "crop-x0", "crop-y0", "spatial-stride")
-        string(get(old_opts, key, "")) == string(opts[key]) || return nothing
+    geometry = ("input" => cfg.input, "crop-size" => cfg.crop_size, "crop-x0" => cfg.crop_x0,
+                "crop-y0" => cfg.crop_y0, "spatial-stride" => cfg.spatial_stride)
+    for (key, value) in geometry
+        string(get(old_opts, key, "")) == string(value) || return nothing
     end
     lines = readlines(region_path)
     length(lines) >= 2 || return nothing
@@ -86,18 +88,18 @@ function maybe_reused_region(output_dir::AbstractString, opts, image_nx::Int, im
         ny=parse(Int, parts[col("ny")]),
         source_nx=parse(Int, parts[col("nx")]),
         source_ny=parse(Int, parts[col("ny")]),
-        x_stride=parse(Int, opts["spatial-stride"]),
-        y_stride=parse(Int, opts["spatial-stride"]),
+        x_stride=cfg.spatial_stride,
+        y_stride=cfg.spatial_stride,
     )
     region.x0 + (region.nx - 1) * region.x_stride <= image_nx || return nothing
     region.y0 + (region.ny - 1) * region.y_stride <= image_ny || return nothing
     return region
 end
 
-function select_input_regions(input::AbstractString, image_nx::Int, image_ny::Int, opts; reuse::Bool)
-    reused = reuse ? maybe_reused_region(opts["output-dir"], opts, image_nx, image_ny) : nothing
+function select_input_regions(cfg, image_nx::Int, image_ny::Int)
+    reused = cfg.reuse ? maybe_reused_region(cfg, image_nx, image_ny) : nothing
     reused !== nothing && return [reused]
-    return [region_from_options(input, image_nx, image_ny, opts)]
+    return [region_from_config(cfg, image_nx, image_ny)]
 end
 
 function update_region_header!(header, region::InputRegion)

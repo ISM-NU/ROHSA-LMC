@@ -48,14 +48,13 @@ function rohsa_memory_estimate(nx::Int, ny::Int, nv::Int, n_gauss::Int, m::Int)
     )
 end
 
-function memory_budget_gib(opts)
-    fraction = parse(Float64, opts["safe-memory-fraction"])
+function memory_budget_gib(cfg)
+    fraction = cfg.safe_memory_fraction
     0 < fraction <= 1 ||
-        throw(ArgumentError("--safe-memory-fraction must be in (0, 1], got $(opts["safe-memory-fraction"])"))
-    raw = opts["memory-gb"]
+        throw(ArgumentError("--safe-memory-fraction must be in (0, 1], got $fraction"))
     # Keep automatic budgets below physical RAM so the Fortran optimizer has
     # room for allocator overhead and the Julia wrapper.
-    base = lowercase(string(raw)) == "auto" ? Sys.total_memory() / GIB : parse(Float64, raw)
+    base = something(cfg.memory_gb, Sys.total_memory() / GIB)
     base > 0 || throw(ArgumentError("--memory-gb must be positive or auto"))
     return base * fraction
 end

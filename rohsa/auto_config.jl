@@ -38,20 +38,8 @@ const AUTO_CONFIG_COLUMNS = [
     "products_trace",
 ]
 
-function auto_config_enabled(opts)
-    return parse_bool(get(opts, "auto-config-enabled", "false"))
-end
-
-function auto_axis_values(opts, key::AbstractString)
-    raw = get(opts, "auto-config-$key", get(opts, key, ""))
-    vals = [strip(part) for part in split(raw, ",") if !isempty(strip(part))]
-    isempty(vals) && throw(ArgumentError("Auto-config axis `$key` resolved to an empty value"))
-    return vals
-end
-
-function auto_candidate_id(index::Int, values)
-    n = parse(Int, values["n-gauss"])
-    return @sprintf("c%03d_n%d", index, n)
+function auto_candidate_id(index::Int, n_gauss::Int)
+    return @sprintf("c%03d_n%d", index, n_gauss)
 end
 
 function limit_auto_candidates(candidates, max_candidates::Int)
@@ -72,48 +60,26 @@ function limit_auto_candidates(candidates, max_candidates::Int)
     return candidates[selected]
 end
 
-function build_auto_config_candidates(opts)
-    values_by_key = Dict(key => auto_axis_values(opts, key) for key in AUTO_CONFIG_AXIS_KEYS)
-    keys = collect(AUTO_CONFIG_AXIS_KEYS)
-    candidates = Dict{String, String}[]
-
-    function append_candidate!(prefix::Dict{String, String}, key_index::Int)
-        if key_index > length(keys)
-            push!(candidates, copy(prefix))
-            return nothing
-        end
-        key = keys[key_index]
-        for value in values_by_key[key]
-            prefix[key] = value
-            append_candidate!(prefix, key_index + 1)
-        end
-        delete!(prefix, key)
-        return nothing
+function build_auto_config_candidates(cfg::RohsaConfig)
+    a = cfg.auto
+    axes = (a.n_gauss, a.lambda_amp, a.lambda_mu, a.lambda_sig, a.lambda_var_amp, a.lambda_var_mu, a.lambda_var_sig)
+    for (key, axis) in zip(AUTO_CONFIG_AXIS_KEYS, axes)
+        isempty(axis) && throw(ArgumentError("Auto-config axis `$key` resolved to an empty value"))
     end
-
-    append_candidate!(Dict{String, String}(), 1)
-    limited = limit_auto_candidates(candidates, parse(Int, opts["auto-config-max-candidates"]))
-    return [
-        merge(copy(opts), Dict(
-            "candidate-id" => auto_candidate_id(i, candidate),
-            "n-gauss" => candidate["n-gauss"],
-            "lambda-amp" => candidate["lambda-amp"],
-            "lambda-mu" => candidate["lambda-mu"],
-            "lambda-sig" => candidate["lambda-sig"],
-            "lambda-var-amp" => candidate["lambda-var-amp"],
-            "lambda-var-mu" => candidate["lambda-var-mu"],
-            "lambda-var-sig" => candidate["lambda-var-sig"],
-        ))
-        for (i, candidate) in enumerate(limited)
-    ]
+    # The last axis varies fastest.
+    grid = [reverse(combo) for combo in vec(collect(Iterators.product(reverse(axes)...)))]
+    limited = limit_auto_candidates(grid, a.max_candidates)
+    return [RohsaCandidate(auto_candidate_id(i, combo[1]), combo...) for (i, combo) in enumerate(limited)]
 end
 
-function resolved_rohsa_candidates(opts)
-    auto_config_enabled(opts) || return [merge(copy(opts), Dict("candidate-id" => ""))]
-    profile = get(opts, "auto-config-profile", "physical_decomposition")
-    profile == "physical_decomposition" ||
-        throw(ArgumentError("Unsupported auto_config.profile=$(repr(profile)); expected \"physical_decomposition\""))
-    return build_auto_config_candidates(opts)
+function resolved_rohsa_candidates(cfg::RohsaConfig)
+    a = cfg.auto
+    a.enabled || return [RohsaCandidate("", n, cfg.lambda_amp, cfg.lambda_mu, cfg.lambda_sig,
+                                        cfg.lambda_var_amp, cfg.lambda_var_mu, cfg.lambda_var_sig)
+                         for n in cfg.n_gauss]
+    a.profile == "physical_decomposition" ||
+        throw(ArgumentError("Unsupported auto_config.profile=$(repr(a.profile)); expected \"physical_decomposition\""))
+    return build_auto_config_candidates(cfg)
 end
 
 function reconstruction_score(row)
@@ -177,18 +143,19 @@ function duplicate_component_penalty(component_rows, duplicate_velocity_kms::Flo
     return penalty
 end
 
-function physical_score_terms(params, products, opts)
+function physical_score_terms(params, products, cfg::RohsaConfig)
     rows = collect(products.component_rows)
     n_gauss = length(rows)
-    min_fraction = parse(Float64, opts["auto-config-small-component-fraction"])
-    broad_limit = parse(Float64, opts["auto-config-broad-fraction-limit"])
-    bound_tol = parse(Float64, opts["auto-config-sigma-bound-tolerance"])
-    duplicate_velocity = parse(Float64, opts["auto-config-duplicate-velocity-kms"])
-    duplicate_sigma = parse(Float64, opts["auto-config-duplicate-sigma-kms"])
-    physical_weight = parse(Float64, opts["auto-config-physical-weight"])
-    stability_weight = parse(Float64, opts["auto-config-stability-weight"])
-    lb_sig = parse(Float64, opts["lb-sig"])
-    ub_sig = parse(Float64, opts["ub-sig"])
+    a = cfg.auto
+    min_fraction = a.small_component_fraction
+    broad_limit = a.broad_fraction_limit
+    bound_tol = a.sigma_bound_tolerance
+    duplicate_velocity = a.duplicate_velocity_kms
+    duplicate_sigma = a.duplicate_sigma_kms
+    physical_weight = a.physical_weight
+    stability_weight = a.stability_weight
+    lb_sig = cfg.lb_sig
+    ub_sig = cfg.ub_sig
     sig_span = max(ub_sig - lb_sig, eps(Float64))
     low_bound = lb_sig + bound_tol * sig_span
     high_bound = ub_sig - bound_tol * sig_span
@@ -253,11 +220,11 @@ function physical_score_terms(params, products, opts)
     )
 end
 
-function apply_auto_config_scores!(metric_row, params, products, opts)
+function apply_auto_config_scores!(metric_row, params, products, cfg::RohsaConfig)
     recon = reconstruction_score(metric_row)
     metric_row["reconstruction_score"] = recon
-    if auto_config_enabled(opts)
-        physical_terms = physical_score_terms(params, products, opts)
+    if cfg.auto.enabled
+        physical_terms = physical_score_terms(params, products, cfg)
         for (key, value) in physical_terms
             metric_row[key] = value
         end
@@ -282,15 +249,15 @@ function apply_auto_config_scores!(metric_row, params, products, opts)
     return metric_row
 end
 
-function candidate_summary_values(opts)
+function candidate_summary_values(cand::RohsaCandidate)
     return Dict(
-        "candidate_id" => get(opts, "candidate-id", ""),
-        "n_gauss" => parse(Int, opts["n-gauss"]),
-        "lambda_amp" => parse(Float64, opts["lambda-amp"]),
-        "lambda_mu" => parse(Float64, opts["lambda-mu"]),
-        "lambda_sig" => parse(Float64, opts["lambda-sig"]),
-        "lambda_var_amp" => parse(Float64, opts["lambda-var-amp"]),
-        "lambda_var_mu" => parse(Float64, opts["lambda-var-mu"]),
-        "lambda_var_sig" => parse(Float64, opts["lambda-var-sig"]),
+        "candidate_id" => cand.id,
+        "n_gauss" => cand.n_gauss,
+        "lambda_amp" => cand.lambda_amp,
+        "lambda_mu" => cand.lambda_mu,
+        "lambda_sig" => cand.lambda_sig,
+        "lambda_var_amp" => cand.lambda_var_amp,
+        "lambda_var_mu" => cand.lambda_var_mu,
+        "lambda_var_sig" => cand.lambda_var_sig,
     )
 end

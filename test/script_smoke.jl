@@ -7,24 +7,23 @@ using Random
     Core.eval(wrapper, :(using Test))
     Base.include(wrapper, joinpath(@__DIR__, "..", "rohsa", "cli", "preprocess.jl"))
 
-    opts = wrapper.parse_args(String[])
-    @test opts["input"] == "data/exp_raw/Tb_combined_mw_full_hnv_resOG_reprojected_on_gass.fits"
-    @test opts["output-dir"] == "validation_output/rohsa_preprocessing"
-    @test wrapper.parse_int_list(opts["n-gauss"]) == [6]
-    @test wrapper.parse_bool(opts["write-visuals"]) == true
-    @test opts["spatial-stride"] == "1"
-    @test opts["derive-products"] == "true"
-    @test opts["memory-gb"] == "auto"
-    @test opts["lambda-amp"] == "100.0"
-    @test opts["lambda-mu"] == "100.0"
-    @test opts["sig-init"] == "4.0"
-    @test isfile(opts["config-path"])
+    cfg = wrapper.parse_args(String[])
+    @test cfg.input == "data/exp_raw/Tb_combined_mw_full_hnv_resOG_reprojected_on_gass.fits"
+    @test cfg.output_dir == "validation_output/rohsa_preprocessing"
+    @test cfg.n_gauss == [6]
+    @test cfg.write_visuals == true
+    @test cfg.spatial_stride == 1
+    @test cfg.derive_products == true
+    @test cfg.memory_gb === nothing
+    @test cfg.lambda_amp == 100.0
+    @test cfg.lambda_mu == 100.0
+    @test cfg.sig_init == 4.0
+    @test isfile(cfg.config_path)
     @test wrapper.upstream_rohsa_source_dir() == normpath(joinpath(@__DIR__, "..", "rohsa", "upstream", "ROHSA"))
     @test wrapper.upstream_rohsa_binary() == joinpath(wrapper.upstream_rohsa_source_dir(), "src", "ROHSA")
 
-    override_opts = mktempdir() do dir
-        config_path = joinpath(dir, "rohsa.toml")
-        write(config_path, """
+    override_cfg, no_adjoint_cfg = mktempdir() do dir
+        config_text = """
         [input]
         input = "data/exp_raw/component.fits"
         output_dir = "validation_output/rohsa_example"
@@ -60,23 +59,32 @@ using Random
         iprint = -1
         iprint_init = -1
         save_grid = false
-        """)
-        wrapper.parse_args(["--config", config_path])
+        """
+        load(text) = begin
+            config_path = joinpath(dir, "rohsa.toml")
+            write(config_path, text)
+            wrapper.parse_args(["--config", config_path])
+        end
+        load(config_text), load(config_text * "regul_grad_adjoint = false\n")
     end
-    @test wrapper.parse_int_list(override_opts["n-gauss"]) == [4, 6]
-    @test override_opts["lambda-amp"] == "250.0"
-    @test override_opts["lambda-mu"] == "100.0"
-    @test override_opts["sig-init"] == "4.0"
-    @test override_opts["lb-sig"] == "1.0"
-    @test wrapper.parse_bool(override_opts["write-visuals"]) == false
-    @test override_opts["spatial-stride"] == "1"
-    @test override_opts["derive-products"] == "true"
+    @test override_cfg.n_gauss == [4, 6]
+    @test override_cfg.lambda_amp == 250.0
+    @test override_cfg.lambda_mu == 100.0
+    @test override_cfg.sig_init == 4.0
+    @test override_cfg.lb_sig == 1.0
+    @test override_cfg.write_visuals == false
+    @test override_cfg.spatial_stride == 1
+    @test override_cfg.derive_products == true
+    # One run per listed N, so both fit and neither overwrites the other.
+    candidates = wrapper.resolved_rohsa_candidates(override_cfg)
+    @test [c.n_gauss for c in candidates] == [4, 6]
+    @test all(isempty(c.id) for c in candidates)
     @test_throws ArgumentError wrapper.parse_args(["--unknown-option", "value"])
 
-    laptop_opts = wrapper.parse_args(["--config", joinpath(@__DIR__, "..", "configs", "rohsa", "full_cube_laptop_stride8.toml")])
-    @test laptop_opts["spatial-stride"] == "8"
-    @test wrapper.parse_bool(laptop_opts["derive-products"]) == false
-    @test wrapper.parse_bool(laptop_opts["write-region-fits"]) == false
+    laptop_cfg = wrapper.parse_args(["--config", joinpath(@__DIR__, "..", "configs", "rohsa", "full_cube_laptop_stride8.toml")])
+    @test laptop_cfg.spatial_stride == 8
+    @test laptop_cfg.derive_products == false
+    @test laptop_cfg.write_region_fits == false
     estimate = wrapper.rohsa_memory_estimate(453, 453, 106, 6, 10)
     @test estimate.padded_side == 512
     @test estimate.peak_gib < 10
@@ -192,7 +200,8 @@ using Random
         rms_path = joinpath(dir, "rms.dat")
         out_path = joinpath(dir, "out.dat")
         timeout_path = joinpath(dir, "timeout.dat")
-        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, 6, override_opts)
+        cand = only(filter(c -> c.n_gauss == 6, candidates))
+        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, override_cfg, cand)
         text = read(params_path, String)
         @test occursin("lambda_amp = 250.0d0", text)
         @test occursin("lambda_mu = 100.0d0", text)
@@ -200,8 +209,7 @@ using Random
         @test occursin("noise = .false.", text)
         # On by default. "false" writes nothing, so ROHSA binaries without the switch still read the file.
         @test occursin("regul_grad_adjoint = .true.", text)
-        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, 6,
-                                       merge(override_opts, Dict("regul-grad-adjoint" => "false")))
+        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, no_adjoint_cfg, cand)
         @test !occursin("regul_grad_adjoint", read(params_path, String))
     end
 

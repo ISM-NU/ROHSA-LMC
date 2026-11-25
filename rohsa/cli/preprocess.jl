@@ -33,18 +33,12 @@ function parse_args(args)
     return load_rohsa_config(config_path)
 end
 
-function parse_int_list(raw::AbstractString)
-    vals = [parse(Int, strip(part)) for part in split(raw, ",") if !isempty(strip(part))]
-    isempty(vals) && throw(ArgumentError("Expected at least one integer in list, got $(repr(raw))"))
-    return vals
-end
-
-function print_rohsa_preflight(regions, nv::Int, n_gauss_values, opts)
-    budget_gib = memory_budget_gib(opts)
-    m = parse(Int, opts["m"])
+function print_rohsa_preflight(regions, nv::Int, n_gauss_values, cfg::RohsaConfig)
+    budget_gib = memory_budget_gib(cfg)
+    m = cfg.m
     max_n = maximum(n_gauss_values)
     println("ROHSA memory budget: ", @sprintf("%.1f GiB", budget_gib),
-            " (memory_gb=", opts["memory-gb"], ", safe_memory_fraction=", opts["safe-memory-fraction"], ")")
+            " (memory_gb=", something(cfg.memory_gb, "auto"), ", safe_memory_fraction=", cfg.safe_memory_fraction, ")")
     unsafe = false
     for region in regions
         estimate = rohsa_memory_estimate(region.nx, region.ny, nv, max_n, m)
@@ -63,29 +57,25 @@ function print_rohsa_preflight(regions, nv::Int, n_gauss_values, opts)
     return unsafe
 end
 
-function run_rohsa_preprocessing(opts)
-    output_dir = opts["output-dir"]
+function run_rohsa_preprocessing(cfg::RohsaConfig)
+    output_dir = cfg.output_dir
     mkpath(output_dir)
-    input = opts["input"]
+    input = cfg.input
     isfile(input) || throw(ArgumentError("Input FITS cube not found: $input"))
-    crop_size = parse(Int, opts["crop-size"])
-    candidate_opts = resolved_rohsa_candidates(opts)
-    n_gauss_values = [parse(Int, candidate["n-gauss"]) for candidate in candidate_opts]
-    reuse = parse_bool(opts["reuse"])
-    derive_products = parse_bool(opts["derive-products"])
-    write_region_fits = parse_bool(opts["write-region-fits"])
-    write_cubes = parse_bool(opts["write-cubes"])
-    keep_rohsa_input = parse_bool(opts["keep-rohsa-input"])
-    write_visuals = parse_bool(opts["write-visuals"])
-    fits_extension = opts["fits-extension"]
+    crop_size = cfg.crop_size
+    candidates = resolved_rohsa_candidates(cfg)
+    n_gauss_values = [cand.n_gauss for cand in candidates]
+    derive_products = cfg.derive_products
+    write_visuals = cfg.write_visuals
+    fits_extension = cfg.fits_extension
 
     println("ROHSA preprocessing output: ", output_dir)
     println("Input cube: ", input)
-    region_label = crop_size <= 0 ? "full cube" : "crop x=$(opts["crop-x0"]) y=$(opts["crop-y0"]) size=$crop_size"
-    parse(Int, opts["spatial-stride"]) == 1 || (region_label *= " stride=$(opts["spatial-stride"])")
+    region_label = crop_size <= 0 ? "full cube" : "crop x=$(cfg.crop_x0) y=$(cfg.crop_y0) size=$crop_size"
+    cfg.spatial_stride == 1 || (region_label *= " stride=$(cfg.spatial_stride)")
     println("Region: ", region_label, "  N: ", join(unique(n_gauss_values), ","))
-    auto_config_enabled(opts) &&
-        println("ROHSA auto-config: physical_decomposition candidates=", length(candidate_opts))
+    cfg.auto.enabled &&
+        println("ROHSA auto-config: physical_decomposition candidates=", length(candidates))
     flush(stdout)
 
     f = FITS(input)
@@ -96,17 +86,17 @@ function run_rohsa_preprocessing(opts)
     finally
         close(f)
     end
-    regions = select_input_regions(input, nx, ny, opts; reuse=reuse)
+    regions = select_input_regions(cfg, nx, ny)
     println("Selected region: ", only(regions).label)
     flush(stdout)
-    unsafe = print_rohsa_preflight(regions, nv, n_gauss_values, opts)
-    if parse_bool(opts["preflight-only"])
+    unsafe = print_rohsa_preflight(regions, nv, n_gauss_values, cfg)
+    if cfg.preflight_only
         # Preflight mode is intentionally side-effect-light: it reports memory
         # feasibility without creating ROHSA inputs or invoking the optimizer.
         println("Preflight-only mode enabled; not writing inputs or running ROHSA.")
         return ""
     end
-    if unsafe && !parse_bool(opts["force-full-cube"])
+    if unsafe && !cfg.force_full_cube
         throw(ArgumentError("ROHSA preflight exceeds the configured memory budget. Use spatial_stride for a reduced-resolution full-footprint run, or force_full_cube = true only on a machine with enough RAM."))
     end
     rohsa_bin = ensure_rohsa_binary()
@@ -128,12 +118,12 @@ function run_rohsa_preprocessing(opts)
         # writer can stream directly from FITS to ROHSA's text format.
         region_products = write_region_products(input, header, region, region_dir;
                                                 retain_cube=retain_cube,
-                                                write_region_fits=write_region_fits,
+                                                write_region_fits=cfg.write_region_fits,
                                                 fits_extension=fits_extension,
-                                                spectral_kernel=opts["spectral-kernel"],
-                                                clip_negative=parse(Bool, opts["clip-negative"]),
-                                                noise_map=opts["noise-map"],
-                                                holdout_mask=opts["holdout-mask"])
+                                                spectral_kernel=cfg.spectral_kernel,
+                                                clip_negative=cfg.clip_negative,
+                                                noise_map=cfg.noise_map,
+                                                holdout_mask=cfg.holdout_mask)
         push!(region_rows, Dict{String, Any}(
             "region" => region.label,
             "x0" => region.x0,
@@ -142,33 +132,25 @@ function run_rohsa_preprocessing(opts)
             "ny" => region.ny,
             "spatial_stride" => region.x_stride,
             "noise_estimate" => region_products.sigma,
-            "spectral_kernel" => opts["spectral-kernel"],
+            "spectral_kernel" => cfg.spectral_kernel,
             "spectral_kernel_sigma_chan" => region_products.kernel_sigma_chan,
-            "clip_negative" => opts["clip-negative"],
-            "noise_map" => opts["noise-map"],
-            "holdout_mask" => opts["holdout-mask"],
+            "clip_negative" => cfg.clip_negative,
+            "noise_map" => cfg.noise_map,
+            "holdout_mask" => cfg.holdout_mask,
             "fits_path" => region_products.fits_path,
         ))
 
         region_rohsa_metrics = Dict{String, Any}[]
         region_product_rows = Dict{String, Any}[]
-        for candidate in candidate_opts
-            n_gauss = parse(Int, candidate["n-gauss"])
-            candidate_id = get(candidate, "candidate-id", "")
+        for cand in candidates
+            n_gauss = cand.n_gauss
+            candidate_id = cand.id
             candidate_label = isempty(candidate_id) ? "N=$(n_gauss)" : "$(candidate_id) N=$(n_gauss)"
             println("[", region.label, "] running ROHSA ", candidate_label)
             flush(stdout)
-            run_stage = run_rohsa_decomposition_stage!(
-                region_dir,
-                region,
-                region_products,
-                n_gauss,
-                candidate,
-                rohsa_bin,
-                reuse,
-            )
+            run_stage = run_rohsa_decomposition_stage!(region_dir, region, region_products, cfg, cand, rohsa_bin)
             if !derive_products
-                push!(region_rohsa_metrics, merge(candidate_summary_values(candidate), Dict{String, Any}(
+                push!(region_rohsa_metrics, merge(candidate_summary_values(cand), Dict{String, Any}(
                     "region" => region.label,
                     "status" => run_stage.status,
                     "selected_for_products" => false,
@@ -183,15 +165,15 @@ function run_rohsa_preprocessing(opts)
                                                   region_products.cube, run_stage.rohsa_out, n_gauss;
                                                   run_label=run_stage.run_label,
                                                   fits_extension=fits_extension,
-                                                  write_cubes=write_cubes)
+                                                  write_cubes=cfg.write_cubes)
             for row in written.component_rows
                 out = copy(row)
                 out["candidate_id"] = candidate_id
                 out["fits_path"] = written.component_paths[Int(row["component"])]
                 push!(component_rows, out)
             end
-            metric_row = merge(candidate_summary_values(candidate), copy(written.fit_row))
-            apply_auto_config_scores!(metric_row, written.params, written, candidate)
+            metric_row = merge(candidate_summary_values(cand), copy(written.fit_row))
+            apply_auto_config_scores!(metric_row, written.params, written, cfg)
             metric_row["selected_for_products"] = false
             metric_row["product_root"] = written.root
             metric_row["run_trace"] = run_stage.trace_path
@@ -246,7 +228,7 @@ function run_rohsa_preprocessing(opts)
         else
             println("[", region.label, "] product derivation disabled; no ROHSA configuration selected")
         end
-        if !keep_rohsa_input && isfile(region_products.rohsa_input_path)
+        if !cfg.keep_rohsa_input && isfile(region_products.rohsa_input_path)
             # All ROHSA runs for this region finished (an error would have
             # stopped us above), so the text copy of the input is no longer needed.
             rm(region_products.rohsa_input_path)
@@ -271,7 +253,7 @@ function run_rohsa_preprocessing(opts)
                            ["region", "x0", "y0", "nx", "ny", "spatial_stride", "noise_estimate", "fits_path"]))
     push!(paths, write_csv(joinpath(output_dir, "rohsa_fit_metrics.csv"), rohsa_metrics,
                            ["region", "candidate_id", "n_gauss", "status", "selected_for_products", "selection_mode", "selection_score", "reconstruction_score", "physical_penalty", "stability_penalty", "small_component_penalty", "sigma_bound_penalty", "broad_fraction_penalty", "duplicate_component_penalty", "roughness_penalty", "lambda_amp", "lambda_mu", "lambda_sig", "lambda_var_amp", "lambda_var_mu", "lambda_var_sig", "total_model_over_data", "voxel_rmse", "voxel_mae", "voxel_residual_skew", "moment_relative_rmse", "moment_mean_relative_bias", "moment_residual_skew", "rohsa_output", "product_root", "run_trace", "products_trace"]))
-    auto_config_enabled(opts) &&
+    cfg.auto.enabled &&
         push!(paths, write_csv(joinpath(output_dir, "rohsa_auto_config_candidates.csv"), rohsa_metrics,
                                AUTO_CONFIG_COLUMNS))
     push!(paths, write_csv(joinpath(output_dir, "rohsa_component_summary.csv"), component_rows,
@@ -283,11 +265,11 @@ function run_rohsa_preprocessing(opts)
     push!(paths, write_csv(joinpath(output_dir, "rohsa_selection_summary.csv"), selected_rows,
                            ["region", "selected_candidate_id", "selected_n_gauss", "selection_score", "reconstruction_score", "physical_penalty", "stability_penalty", "total_model_over_data", "moment_relative_rmse", "moment_mean_relative_bias", "moment_residual_skew", "product_root", "run_trace", "products_trace"]))
     !isempty(selection_path) && push!(paths, selection_path)
-    push!(paths, write_manifest(joinpath(output_dir, "manifest.toml"), opts, rohsa_bin, visual_paths))
+    push!(paths, write_manifest(joinpath(output_dir, "manifest.toml"), cfg, rohsa_bin, visual_paths))
     report_target = joinpath(output_dir, "report.md")
     visual_index_path = write_visuals ? write_visual_index(joinpath(output_dir, "visual_index.html"), visual_paths, vcat(paths, [report_target])) : ""
     write_visuals && push!(paths, visual_index_path)
-    report_path = write_report(report_target, opts, region_rows, rohsa_metrics, selected_rows, paths, visual_paths)
+    report_path = write_report(report_target, cfg, region_rows, rohsa_metrics, selected_rows, paths, visual_paths)
     println("Wrote primary report: ", report_path)
     println("Selected products manifest: ", joinpath(output_dir, "selected_rohsa_products.csv"))
     println("All ROHSA products saved under: ", output_dir)
