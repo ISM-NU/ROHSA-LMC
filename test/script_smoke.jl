@@ -75,7 +75,7 @@ using Random
     @test override_cfg.write_visuals == false
     @test override_cfg.spatial_stride == 1
     @test override_cfg.derive_products == true
-    # Several N need [auto_config]: the Slurm job is sized from one N.
+    # A plain n_gauss list is an error; several N need the [auto_config] n_gauss axis.
     @test_throws ArgumentError wrapper.resolved_rohsa_candidates(override_cfg)
     single = only(wrapper.resolved_rohsa_candidates(cfg))
     @test single.n_gauss == 6 && isempty(single.id)
