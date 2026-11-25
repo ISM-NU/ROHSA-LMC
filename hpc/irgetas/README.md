@@ -70,6 +70,10 @@ CPUs mostly sit idle.
 | 2048² crop, 159 channels, N = 16 | 32 | 89 GB | 3.4-3.9 h | 120 GB, 8 h |
 | whole cube (`crop_size = 0`) | 32 | not run | | 180 GB, 3 days |
 
+`submit_rohsa.sh` requests 120 GB at 2048² for every N above 6, so the request
+never drops as N grows. The 140 GB in the N = 8 row is what job 31697 asked for;
+N 7-8 has no measured peak, and N = 16 (more memory than N 8) peaked at 89 GB.
+
 Check a finished job with
 `sacct -j JOB_ID -o JobID,State,Elapsed,AllocCPUS,ReqMem,MaxRSS` and tighten the
 table when a peak is known. Long time limits do not slow a run, but the

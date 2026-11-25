@@ -54,9 +54,12 @@ end
     @test whole_cube["--partition"] == "ZEN4"
     @test whole_cube["--mem"] == "180G"
 
-    for (n, mem) in ((6, "100G"), (7, "140G"), (8, "140G"), (9, "120G"))
+    for (n, mem) in ((6, "100G"), (7, "120G"), (8, "120G"), (9, "120G"))
         @test submitted_sbatch_args(["crop_size = 2048"]; max_n=n)["--mem"] == mem
     end
+    # Memory grows with N, so the request must not shrink as N grows.
+    gib(n) = parse(Int, rstrip(submitted_sbatch_args(["crop_size = 2048"]; max_n=n)["--mem"], 'G'))
+    @test issorted(gib.(1:16))
 
     override = submitted_sbatch_args(["crop_size = 512", "n_gauss = [8]"]; max_n=8, env=("MEM" => "50G", "CPUS" => "8"))
     @test override["--mem"] == "50G"
@@ -94,7 +97,7 @@ end
 end
 
 # End to end: the real preflight resolves the [auto_config] n_gauss axis, so a
-# sweep to N = 8 is requested at the 7-8 bracket (140G), not at the [rohsa]
+# sweep to N = 8 is requested at the N 7-8 bracket (120G), not at the [rohsa]
 # value N = 6 (100G).
 @testset "submit_rohsa.sh requests memory for the largest candidate N" begin
     got = mktempdir() do dir
@@ -113,5 +116,5 @@ end
         (plain=plain["--mem"], sweep=sweep["--mem"])
     end
     @test got.plain == "100G"
-    @test got.sweep == "140G"
+    @test got.sweep == "120G"
 end

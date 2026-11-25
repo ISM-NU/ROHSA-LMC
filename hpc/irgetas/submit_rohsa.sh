@@ -37,9 +37,9 @@ elif [ "$crop" -gt 0 ] && [ "$crop" -le 1024 ]; then
     cpus=16; memory="40G"; time_limit="12:00:00"
 elif [ "$crop" -gt 0 ] && [ "$crop" -le 2048 ]; then
     cpus=32
-    # N > 8 is the measured N = 16 job (f34c7ec); N 7-8 still has the earlier unmeasured 140G, so the request is not monotonic in N.
+    # Memory grows with N, so N 7-8 must fit in what the measured N = 16 job used (89 GB, f34c7ec). N 7-8 itself was never measured.
     if [ "$n_gauss" -le 6 ]; then memory="100G"; time_limit="1-00:00:00"
-    elif [ "$n_gauss" -le 8 ]; then memory="140G"; time_limit="1-12:00:00"
+    elif [ "$n_gauss" -le 8 ]; then memory="120G"; time_limit="1-12:00:00"
     else memory="120G"; time_limit="08:00:00"; fi  # N = 16 measured: 89 GB, under 4 h
 else
     # Whole cube (crop_size = 0), e.g. the 3624^2 foreground cube.
