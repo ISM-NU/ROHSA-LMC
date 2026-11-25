@@ -60,7 +60,7 @@ CPUs mostly sit idle.
 `submit_rohsa.sh` picks these from `crop_size` and the largest N of the run (the whole `[auto_config]` sweep counts); override with
 `CPUS=`, `MEM=` or `TIME=` in front of the command.
 
-| Run | CPUs | Measured peak memory | Measured wall time | Requested |
+| Run | CPUs | Measured peak memory | Measured wall time | Requested for that run |
 |---|---|---|---|---|
 | 512² crop, N = 6-8 | 16 | 5-6 GB | 20-31 min | 12 GB, 3 h |
 | 512² crop, N = 16 | 16 | 6 GB | 20-41 min | 12 GB, 3 h |
