@@ -75,10 +75,10 @@ using Random
     @test override_cfg.write_visuals == false
     @test override_cfg.spatial_stride == 1
     @test override_cfg.derive_products == true
-    # One run per listed N, so both fit and neither overwrites the other.
-    candidates = wrapper.resolved_rohsa_candidates(override_cfg)
-    @test [c.n_gauss for c in candidates] == [4, 6]
-    @test all(isempty(c.id) for c in candidates)
+    # Several N need [auto_config]: the Slurm job is sized from one N.
+    @test_throws ArgumentError wrapper.resolved_rohsa_candidates(override_cfg)
+    single = only(wrapper.resolved_rohsa_candidates(cfg))
+    @test single.n_gauss == 6 && isempty(single.id)
     @test_throws ArgumentError wrapper.parse_args(["--unknown-option", "value"])
 
     laptop_cfg = wrapper.parse_args(["--config", joinpath(@__DIR__, "..", "configs", "rohsa", "full_cube_laptop_stride8.toml")])
@@ -200,7 +200,8 @@ using Random
         rms_path = joinpath(dir, "rms.dat")
         out_path = joinpath(dir, "out.dat")
         timeout_path = joinpath(dir, "timeout.dat")
-        cand = only(filter(c -> c.n_gauss == 6, candidates))
+        cand = wrapper.RohsaCandidate("", 6, override_cfg.lambda_amp, override_cfg.lambda_mu, override_cfg.lambda_sig,
+                                      override_cfg.lambda_var_amp, override_cfg.lambda_var_mu, override_cfg.lambda_var_sig)
         wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, override_cfg, cand)
         text = read(params_path, String)
         @test occursin("lambda_amp = 250.0d0", text)

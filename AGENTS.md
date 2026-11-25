@@ -10,7 +10,7 @@ Read `README.md` first, then `rohsa/README.md`.
 
 - Belongs here: code that prepares, runs or post-processes a ROHSA decomposition, and its tests, validation notes and cluster scripts.
 - Does not belong here: experiments (scans, null and injection tests, cold-gas maps, figures, comparisons with stars or Planck). They go to `LMC-cold-gas` (ROHSA experiments) or `LMC-foreground` (foreground work).
-- VGT itself is not changed here. It comes from `deps/VGT` (ISM-NU/VGT.jl). Do not edit anything under `deps/`.
+- VGT itself is not changed here. It comes from `deps/VGT` (ISM-NU/VGT.jl, a private repository). Do not edit anything under `deps/`.
 
 ## Language
 
@@ -20,7 +20,7 @@ Use Julia where performance needs it. Simple scripts can be Python.
 
 - ROHSA defaults (`lambda` terms, `n_gauss`, bounds, noise handling, iteration limits, smoothing) are science settings. A change needs a stated reason and a validation, and goes through the docs.
 - Do not change what a product means (amplitude, width, centre, layer split) without a documented decision. Experiment repos pin this repo and compare runs across versions.
-- Keep parity checks: a speed change must reproduce the previous fit within the tolerance in `docs/validation/rohsa-openmp-parity-2026-10-17.md`.
+- Keep parity checks. The output must not depend on the number of threads (`test/rohsa_threads.jl`). A change that alters rounding must pass the ensemble test in "Equivalence of results" of `docs/validation/rohsa-deterministic-openmp-2026-11-13.md`. The 2026-10-17 note is the first single-run check, kept as history.
 - `rohsa/upstream/ROHSA` is the upstream base (ab4f299) plus the series in `docs/upstream-prs/rohsa/patches`. If you change the vendored Fortran, add a patch at the end of the series and update the text in `docs/upstream-prs/rohsa`. `scripts/check_rohsa_patches.sh` fails on any difference and runs in CI.
 - Do not treat a smoother or prettier decomposition as a better one.
 
@@ -39,5 +39,7 @@ Use Julia where performance needs it. Simple scripts can be Python.
 - Papers go under `docs/references/` and are summarized in the docs, not copied.
 
 ## Submodule
+
+ISM-NU/VGT.jl is private, so `git clone --recursive`, `git submodule update` and the `test` CI job need access to the ISM-NU organisation. Without it the package does not build.
 
 After changing `deps/VGT` pointers in a consumer repo, commit the pointer there. Here, update with `git -C deps/VGT pull` and commit the new pointer.

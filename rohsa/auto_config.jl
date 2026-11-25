@@ -74,9 +74,12 @@ end
 
 function resolved_rohsa_candidates(cfg::RohsaConfig)
     a = cfg.auto
-    a.enabled || return [RohsaCandidate("", n, cfg.lambda_amp, cfg.lambda_mu, cfg.lambda_sig,
-                                        cfg.lambda_var_amp, cfg.lambda_var_mu, cfg.lambda_var_sig)
-                         for n in cfg.n_gauss]
+    if !a.enabled
+        length(cfg.n_gauss) == 1 ||
+            throw(ArgumentError("n_gauss lists $(length(cfg.n_gauss)) values; use [auto_config] to run several, or give one"))
+        return [RohsaCandidate("", only(cfg.n_gauss), cfg.lambda_amp, cfg.lambda_mu, cfg.lambda_sig,
+                               cfg.lambda_var_amp, cfg.lambda_var_mu, cfg.lambda_var_sig)]
+    end
     a.profile == "physical_decomposition" ||
         throw(ArgumentError("Unsupported auto_config.profile=$(repr(a.profile)); expected \"physical_decomposition\""))
     return build_auto_config_candidates(cfg)

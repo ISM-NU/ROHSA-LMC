@@ -65,8 +65,8 @@ CPUs mostly sit idle.
 | 512² crop, N = 6-8 | 16 | 5-6 GB | 20-31 min | 12 GB, 3 h |
 | 512² crop, N = 16 | 16 | 6 GB | 20-41 min | 12 GB, 3 h |
 | 1024² crop | 16 | not yet measured with OpenMP | | 40 GB, 12 h |
-| 2048² crop, N = 6 | 32 | job 31677 | ~6 h | 100 GB, 1 day |
-| 2048² crop, N = 8 | 32 | 28 GB before the last level | job 31697 | 140 GB, 1.5 days |
+| 2048² crop, N = 6 | 32 | not recorded (job 31677) | ~6 h | 100 GB, 1 day |
+| 2048² crop, N = 8 | 32 | 28 GB before the last level | not recorded (job 31697) | 140 GB, 1.5 days |
 | 2048² crop, 159 channels, N = 16 | 32 | 89 GB | 3.4-3.9 h | 120 GB, 8 h |
 | whole cube (`crop_size = 0`) | 32 | not run | | 180 GB, 3 days |
 
