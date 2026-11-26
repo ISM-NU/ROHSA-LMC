@@ -54,23 +54,24 @@ function run_rohsa_decomposition_stage!(region_dir, region, region_products, cfg
     # Parameter files are regenerated on every attempt so trace files always
     # capture the current TOML options, even when a fitted output is reused.
     write_rohsa_parameters(params_path, region_products.rohsa_input_path, region_products.rms_path,
-                           rohsa_out, timeout_path, cfg, cand)
+                           rohsa_out, timeout_path, cfg, cand; range_path=region_products.range_path)
     status = run_rohsa(rohsa_bin, params_path, rohsa_out, cfg.reuse)
     trace_path = joinpath(region_dir, "$(run_label)_run_trace.toml")
-    open(trace_path, "w") do io
-        TOML.print(io, Dict(
-            "stage" => "rohsa_decomposition",
-            "region" => region.label,
-            "n_gauss" => n_gauss,
-            "candidate_id" => candidate_id,
-            "status" => status,
-            "rohsa_input" => region_products.rohsa_input_path,
-            "rms_map" => region_products.rms_path,
-            "parameters" => params_path,
-            "rohsa_output" => rohsa_out,
-            "timeout" => timeout_path,
-            "config" => rohsa_trace_config(cfg, cand),
-        ); sorted=true)
-    end
+    trace = Dict(
+        "stage" => "rohsa_decomposition",
+        "region" => region.label,
+        "n_gauss" => n_gauss,
+        "candidate_id" => candidate_id,
+        "status" => status,
+        "rohsa_input" => region_products.rohsa_input_path,
+        "rms_map" => region_products.rms_path,
+        "parameters" => params_path,
+        "rohsa_output" => rohsa_out,
+        "timeout" => timeout_path,
+        "config" => rohsa_trace_config(cfg, cand),
+    )
+    # Only with missing_data = "skip", so the trace of a default run is unchanged.
+    isempty(region_products.range_path) || (trace["live_channel_range"] = region_products.range_path)
+    open(io -> TOML.print(io, trace; sorted=true), trace_path, "w")
     return (; params_path, rohsa_out, timeout_path, trace_path, status, run_label, candidate_id)
 end

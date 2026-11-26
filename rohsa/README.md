@@ -81,6 +81,40 @@ noise). Fitted widths include the kernel in quadrature; the kernel's equivalent
 σ is written to the crop header (`SPKSIGCH`, channels) and the run summary, and
 analyses must deconvolve with it before applying width cuts.
 
+Missing data and noise, for mosaics whose pointings cover different channel
+ranges (all opt-in in `[input]`; the defaults reproduce earlier runs):
+
+- `missing_data = "skip"`: the wrapper writes each pixel's live channel range
+  (first to last channel that is neither 0 nor NaN in the raw crop) to
+  `live_channel_range.dat`, and ROHSA leaves the channels outside it out of its
+  data term and gradient (`filename_range`, mod_array.f90). Pixels without any
+  data get noise 0 and an empty range: no data term, parameters from the
+  smoothing term only (do not read them as measurements). The coarse
+  multiresolution levels average each channel over the children observed in
+  it and take the union of their ranges (mod_functions.f90 `mean_array_live`).
+  The default `"zero"` writes NaN as 0 and fits those zeros as data.
+  `"skip"` needs `regul = true`, `noise = true` and `spectral_kernel = "none"`;
+  other settings would fit the fill as data, so the config is refused.
+- `channel_range_file` (with `"skip"`): reliable ranges made beforehand by
+  `rohsa/cli/channel_ranges.jl`. In a mosaic, end-of-band channels that only one
+  of two overlapping blocks covers can be averaged with the empty block, so
+  signal and noise fade towards the seam while staying nonzero. The tool
+  measures that weight w from the noise (adjacent-channel differences per
+  16 px tile, relative to the most common noise level) and keeps, per pixel,
+  the outermost live channels with w >= 0.8 (at most a 20 % amplitude error in
+  kept voxels; no 1/w rescaling). Use the same file for a null cube made from
+  the data. The line-free noise estimate then uses only these channels.
+- `noise_estimate = "line_free"` with `noise_per_pixel = true`: per-pixel noise
+  from emission-free voxels (exact zeros and NaN are never used; with
+  `"skip"`, only channels in the pixel's range). `noise_floor_quantile` floors
+  the map at that quantile over the pixels with data. Attenuated channels bias
+  the estimate low, so without reliable ranges a high floor (e.g. 0.25) is
+  needed; with them the map has no low tail and a guard (e.g. 0.01) keeps real
+  noise variations. A per-run quantile gives a data cube and its null different
+  floors, so keep it low when they are compared.
+
+Evidence: `docs/validation/rohsa-live-channel-range-2026-11-22.md`.
+
 To use a different config file:
 
 ```bash

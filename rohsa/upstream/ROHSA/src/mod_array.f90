@@ -25,6 +25,16 @@ module mod_array
   integer, public :: checkpoint_at(64) = 0
   character(len=512), public :: checkpoint_prefix = ''
   logical, public :: ckpt_level_active = .false.
+
+  !! Live channel range (opt-in; off unless filename_range is set, and then a run without it is unchanged).
+  !! In a mosaic whose pointings cover different channel ranges, the channels a pixel was not observed in hold a
+  !! fill value (0), not a measurement. With a range file, the data term of pixel (y,x) uses only the channels
+  !! range_lo(y,x)..range_hi(y,x) (1-based); range_lo > range_hi means the pixel has no data at all. Two integer
+  !! maps instead of a weight cube: the observed channels of a pixel are contiguous in such mosaics.
+  !! range_lo/range_hi hold the ranges of the level being fitted; mod_rohsa sets them before each update.
+  character(len=512), public :: filename_range = ''
+  logical, public :: use_range = .false.
+  integer, public, dimension(:,:), allocatable :: range_lo, range_hi
   
   
 contains

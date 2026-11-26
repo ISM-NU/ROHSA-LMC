@@ -8,6 +8,7 @@ using Test
     include("rohsa_memory.jl")
     include("rohsa_threads.jl")
     include("rohsa_checkpoint.jl")
+    include("rohsa_live_range.jl")
     include("rohsa_noise.jl")
     include("rohsa_layers.jl")
     include("derotate.jl")

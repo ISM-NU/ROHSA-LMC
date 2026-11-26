@@ -1,0 +1,413 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 14:00:00 +0500
+Subject: [PATCH] Optional live channel range per pixel (filename_range)
+
+Mosaics of observing blocks give each pixel its own contiguous range of
+observed channels, with fill zeros outside it and no data beyond the survey
+edge. With filename_range, residuals outside a pixel's range carry no weight
+in the data term and its gradient, and a pixel with an empty range has no
+data term at all.
+
+Coarse levels take the union of the children's ranges and average each
+channel over the children observed in it; the coarse noise is the mean over
+children with data. A pixel without data gets the level's largest amplitude
+bound, since init_bounds would pin its amplitudes at 0. Off by default: without
+the key every change is skipped.
+---
+ src/mod_array.f90     |  10 ++++
+ src/mod_functions.f90 | 122 ++++++++++++++++++++++++++++++++++++++++--
+ src/mod_inout.f90     |  29 ++++++++--
+ src/mod_optimize.f90  |  25 +++++++--
+ src/mod_rohsa.f90     |  47 +++++++++++++++-
+ 5 files changed, 220 insertions(+), 13 deletions(-)
+
+diff --git a/src/mod_array.f90 b/src/mod_array.f90
+index a322f19..082dfea 100644
+--- a/src/mod_array.f90
++++ b/src/mod_array.f90
+@@ -25,6 +25,16 @@ module mod_array
+   integer, public :: checkpoint_at(64) = 0
+   character(len=512), public :: checkpoint_prefix = ''
+   logical, public :: ckpt_level_active = .false.
++
++  !! Live channel range (opt-in; off unless filename_range is set, and then a run without it is unchanged).
++  !! In a mosaic whose pointings cover different channel ranges, the channels a pixel was not observed in hold a
++  !! fill value (0), not a measurement. With a range file, the data term of pixel (y,x) uses only the channels
++  !! range_lo(y,x)..range_hi(y,x) (1-based); range_lo > range_hi means the pixel has no data at all. Two integer
++  !! maps instead of a weight cube: the observed channels of a pixel are contiguous in such mosaics.
++  !! range_lo/range_hi hold the ranges of the level being fitted; mod_rohsa sets them before each update.
++  character(len=512), public :: filename_range = ''
++  logical, public :: use_range = .false.
++  integer, public, dimension(:,:), allocatable :: range_lo, range_hi
+   
+   
+ contains
+diff --git a/src/mod_functions.f90 b/src/mod_functions.f90
+index 87635ba..e208df6 100644
+--- a/src/mod_functions.f90
++++ b/src/mod_functions.f90
+@@ -12,7 +12,7 @@ module mod_functions
+   
+   public :: mean_array, mean_map, dim2nside, dim_data2dim_cube, reshape_up, reshape_down, go_up_level, init_spectrum, &
+        upgrade, update, set_stdmap, std_spectrum, mean_spectrum, max_spectrum, init_grid_params, init_new_gauss, &
+-       reshape_noise_up
++       reshape_noise_up, mean_array_live, mean_map_live
+ 
+ contains
+     
+@@ -155,6 +155,104 @@ contains
+   end subroutine mean_map
+ 
+ 
++  subroutine mean_array_live(nside, cube, lo, hi, cube_mean, lo_mean, hi_mean)
++    !! Live channel range version of mean_array (used only with a range file, mod_array use_range).
++    !! Coarse-level rule: the range of a coarse pixel is the union (the hull) of its children's ranges, and each
++    !! channel is averaged over the children observed in it. Why union, not intersection: the coarse levels only
++    !! start the next level, and the union keeps every observed channel. The intersection would drop a block's
++    !! extra channels wherever a coarse pixel straddles a block boundary, and at the coarsest levels (which mix
++    !! all blocks) cut the band down to the narrowest block's range. Averaging over the observed children only
++    !! (not dividing by all n**2) keeps fill zeros and pixels without data from diluting the spectrum. A channel
++    !! inside the hull that no child observed (possible only if the children's ranges do not overlap) stays 0.
++    implicit none
++
++    integer, intent(in) :: nside !! nside of the level
++    real(xp), intent(in), dimension(:,:,:), allocatable :: cube !! full-resolution cube (padded)
++    integer, intent(in), dimension(:,:), allocatable :: lo, hi !! full-resolution ranges (padded, 1-based)
++    real(xp), intent(inout), dimension(:,:,:), allocatable :: cube_mean !! average cube
++    integer, intent(inout), dimension(:,:), allocatable :: lo_mean, hi_mean !! ranges of the level
++
++    integer :: i, j, k, l, n, c, y, x, a, b
++    real(xp), dimension(:), allocatable :: spectrum
++    integer, dimension(:), allocatable :: cnt
++
++    allocate(spectrum(size(cube,dim=1)), cnt(size(cube,dim=1)))
++    n = size(cube, dim=2) / nside
++
++    do i=1,size(cube_mean,dim=2)
++       do j=1,size(cube_mean,dim=3)
++          spectrum = 0._xp
++          cnt = 0
++          a = huge(a)
++          b = -huge(b)
++          do k=1,n
++             do l=1,n
++                y = k+((i-1)*n)
++                x = l+((j-1)*n)
++                if (lo(y,x) > hi(y,x)) cycle
++                do c=lo(y,x), hi(y,x)
++                   spectrum(c) = spectrum(c) + cube(c,y,x)
++                   cnt(c) = cnt(c) + 1
++                end do
++                a = min(a, lo(y,x))
++                b = max(b, hi(y,x))
++             enddo
++          enddo
++          do c=1, size(spectrum)
++             if (cnt(c) > 0) spectrum(c) = spectrum(c) / real(cnt(c),xp)
++          end do
++          cube_mean(:,i,j) = spectrum
++          if (a > b) then
++             lo_mean(i,j) = 1
++             hi_mean(i,j) = 0
++          else
++             lo_mean(i,j) = a
++             hi_mean(i,j) = b
++          end if
++       enddo
++    enddo
++
++    deallocate(spectrum, cnt)
++  end subroutine mean_array_live
++
++
++  subroutine mean_map_live(nside, map, lo, hi, map_mean)
++    !! Live channel range version of mean_map for the noise map: the mean over the children that have data
++    !! (non-empty range) and a noise value > 0. A coarse pixel none of whose children qualifies gets 0, i.e. no
++    !! data term, as at full resolution. Dividing by all n**2 would let pixels without data (noise 0) lower the
++    !! coarse noise and so raise the weight of partly covered coarse pixels.
++    implicit none
++
++    integer, intent(in) :: nside
++    real(xp), intent(in), dimension(:,:), allocatable :: map
++    integer, intent(in), dimension(:,:), allocatable :: lo, hi
++    real(xp), intent(inout), dimension(:,:), allocatable :: map_mean
++
++    integer :: i, j, k, l, n, y, x, cnt
++    real(xp) :: val
++
++    n = size(map, dim=2) / nside
++
++    do i=1,size(map_mean,dim=1)
++       do j=1,size(map_mean,dim=2)
++          val = 0._xp
++          cnt = 0
++          do k=1,n
++             do l=1,n
++                y = k+((i-1)*n)
++                x = l+((j-1)*n)
++                if (lo(y,x) > hi(y,x) .or. .not. (map(y,x) > 0._xp)) cycle
++                val = val + map(y,x)
++                cnt = cnt + 1
++             enddo
++          enddo
++          map_mean(i,j) = 0._xp
++          if (cnt > 0) map_mean(i,j) = val / real(cnt,xp)
++       enddo
++    enddo
++  end subroutine mean_map_live
++
++
+   subroutine go_up_level(cube_params)
+     !! Projection of the solution at next level (nside += 1)
+     implicit none
+@@ -363,8 +461,9 @@ contains
+     real(xp), intent(inout), dimension(:,:,:), allocatable :: params !! parameters cube to update
+ 
+     real(xp) :: c_lym
+-    
+-    integer :: i,j
++    real(xp) :: cube_max
++
++    integer :: i,j,k
+     integer :: n_beta
+     real(xp), dimension(:,:,:), allocatable :: lb_3D, ub_3D
+     real(xp), dimension(:), allocatable :: lb, ub
+@@ -382,6 +481,23 @@ contains
+        end do
+     end do
+ 
++    ! Live channel range: init_bounds caps the amplitude at the spectrum's maximum, which is 0 for a pixel
++    ! without data, so its amplitudes would be pinned at 0 and the smoothing term would pull its neighbours
++    ! towards 0. Such a pixel has no data term; give it the level's largest cap so the smoothing term alone sets
++    ! its parameters.
++    if (use_range) then
++       cube_max = maxval(cube)
++       do j=1, dim_x
++          do i=1, dim_y
++             if (range_lo(i,j) > range_hi(i,j)) then
++                do k=1, n_gauss
++                   ub_3D(1+(3*(k-1)),i,j) = cube_max
++                end do
++             end if
++          end do
++       end do
++    end if
++
+     call ravel_3D(lb_3D, lb, 3*n_gauss, dim_y, dim_x)
+     call ravel_3D(ub_3D, ub, 3*n_gauss, dim_y, dim_x)
+     call ravel_3D(params, beta, 3*n_gauss, dim_y, dim_x)
+diff --git a/src/mod_inout.f90 b/src/mod_inout.f90
+index c45b0ac..c52a8e4 100644
+--- a/src/mod_inout.f90
++++ b/src/mod_inout.f90
+@@ -3,13 +3,13 @@ module mod_inout
+   !! This module read the input user parameters (parameters.txt file / data / noise if true)
+   use mod_constants
+   use mod_convert
+-  use mod_array, only: regul_grad_adjoint, maxiter_last, checkpoint_at, checkpoint_prefix
++  use mod_array, only: regul_grad_adjoint, maxiter_last, checkpoint_at, checkpoint_prefix, filename_range
+   
+   implicit none
+   
+   private
+   
+-  public :: read_cube, read_output, read_map, read_array, read_parameters, save_process
++  public :: read_cube, read_output, read_map, read_array, read_parameters, save_process, read_range
+ 
+ contains
+   
+@@ -50,7 +50,7 @@ contains
+          lambda_mu, lambda_sig, lambda_var_amp, lambda_var_mu, lambda_var_sig, lambda_lym_sig, amp_fact_init, &
+          sig_init, lb_sig_init, ub_sig_init, lb_sig, ub_sig, init_option, maxiter_init, maxiter, m, noise, regul, &
+          descent, lstd, ustd, iprint, iprint_init, save_grid, lym, init_grid, fileinit, init_spec, regul_grad_adjoint, &
+-         maxiter_last, checkpoint_at, checkpoint_prefix
++         maxiter_last, checkpoint_at, checkpoint_prefix, filename_range
+     
+     open(unit=11, file=filename_parameters, status="old", iostat=ios)
+     if (ios /= 0) stop "opening file error"
+@@ -162,6 +162,29 @@ contains
+   end subroutine read_map
+ 
+ 
++  !! Live channel range file (mod_array filename_range): header "ny nx", then one row "y x first last" per pixel,
++  !! 0-based like the cube and noise files; first > last marks a pixel without data. Returns 1-based channels.
++  subroutine read_range(filename, lo, hi)
++    implicit none
++    character(len=512), intent(in) :: filename
++    integer, intent(inout), dimension(:,:), allocatable :: lo, hi
++
++    integer :: ios=0, i, y, x, a, b, ny, nx
++
++    open(unit=11, file=filename, action="read", status="old", iostat=ios)
++    if (ios /= 0) stop "opening range file error"
++    read(11,fmt=*) ny, nx
++    allocate(lo(ny,nx), hi(ny,nx))
++    lo = 1
++    hi = 0
++    do i=1, ny*nx
++       read(11,fmt=*) y, x, a, b
++       lo(y+1,x+1) = a+1
++       hi(y+1,x+1) = b+1
++    enddo
++    close(11)
++  end subroutine read_range
++
+   subroutine read_array(filename, array)
+     implicit none
+     integer           :: ios=0, i
+diff --git a/src/mod_optimize.f90 b/src/mod_optimize.f90
+index d2d62d7..631feb4 100644
+--- a/src/mod_optimize.f90
++++ b/src/mod_optimize.f90
+@@ -113,10 +113,11 @@ contains
+   !! the three derivatives, so no residual cube is stored. The model, the residual and every
+   !! derivative are summed in the same order as in the separate loops this replaces. Explicit-shape
+   !! arguments let gfortran optimise the loops inside the OpenMP region.
+-  subroutine data_term(dim_v, n_gauss, p, line, std, fp, d)
++  !! kf..kl: live channel range of this spectrum (mod_array use_range); 1..dim_v when no range file is given.
++  subroutine data_term(dim_v, n_gauss, p, line, std, kf, kl, fp, d)
+     implicit none
+ 
+-    integer, intent(in) :: dim_v, n_gauss
++    integer, intent(in) :: dim_v, n_gauss, kf, kl
+     real(xp), intent(in) :: p(3*n_gauss), line(dim_v), std
+     real(xp), intent(out) :: fp, d(3*n_gauss)
+ 
+@@ -146,6 +147,14 @@ contains
+        end do
+     end do
+     res = res - line
++    ! Live channel range: residuals outside kf..kl get zero weight, in f and in the gradient below (which only
++    ! sees res). kf > kl zeroes every channel (pixel without data). With the full range nothing changes.
++    do k=1, min(kf-1, dim_v)
++       res(k) = 0._xp
++    end do
++    do k=max(kl+1, 1), dim_v
++       res(k) = 0._xp
++    end do
+ 
+     d = 0._xp
+     fp = 0._xp
+@@ -187,7 +196,7 @@ contains
+     real(xp), intent(inout) :: f
+     real(xp), intent(inout), dimension(:), allocatable :: g
+ 
+-    integer :: i, j, l, np
++    integer :: i, j, l, np, kf, kl
+     integer(8) :: o
+     integer :: n_beta
+     real(xp), dimension(:), allocatable :: b_params
+@@ -212,11 +221,17 @@ contains
+     end do
+ 
+     ! Data term, spectra in parallel; each one sets its own np entries of g.
+-    !$omp parallel do private(i, o) schedule(static)
++    !$omp parallel do private(i, o, kf, kl) schedule(static)
+     do j=1, dim_x
+        do i=1, dim_y
+           o = int(np,8) * (int(i-1,8) + int(dim_y,8)*int(j-1,8))
+-          call data_term(dim_v, n_gauss, beta(o+1:o+np), cube(:,i,j), std_map(i,j), fpix(i,j), g(o+1:o+np))
++          kf = 1
++          kl = dim_v
++          if (use_range) then
++             kf = range_lo(i,j)
++             kl = range_hi(i,j)
++          end if
++          call data_term(dim_v, n_gauss, beta(o+1:o+np), cube(:,i,j), std_map(i,j), kf, kl, fpix(i,j), g(o+1:o+np))
+        end do
+     end do
+     !$omp end parallel do
+diff --git a/src/mod_rohsa.f90 b/src/mod_rohsa.f90
+index 32142eb..03cb784 100644
+--- a/src/mod_rohsa.f90
++++ b/src/mod_rohsa.f90
+@@ -91,6 +91,8 @@ contains
+     
+     real(xp), dimension(:,:), allocatable :: kernel !! convolution kernel 
+     real(xp), dimension(:,:), allocatable :: map
++    ! Live channel range (mod_array use_range): full-resolution maps and the same on the padded grid
++    integer, dimension(:,:), allocatable :: lo_full, hi_full, lo_cube, hi_cube
+ 
+     real(xp) :: lctime, uctime
+     
+@@ -171,6 +173,19 @@ contains
+     write(*,*) "number of los = ", dim_data(2)*dim_data(3)
+     
+     nside = dim2nside(dim_data)
++
++    ! Live channel range (opt-in, mod_array): read the per-pixel ranges; nothing below changes without them.
++    if (len_trim(filename_range) > 0) then
++       call read_range(filename_range, lo_full, hi_full)
++       if (size(lo_full,1) /= dim_data(2) .or. size(lo_full,2) /= dim_data(3)) stop "range file: wrong map size"
++       if (lym .eqv. .true.) stop "range file: not supported with lym"
++       lo_full = max(lo_full, 1)
++       hi_full = min(hi_full, dim_data(1))
++       use_range = .true.
++       print*, "filename_range = '", trim(filename_range), "'"
++       print*, "pixels without data = ", count(lo_full > hi_full), ", with a partial range = ", &
++            count(lo_full <= hi_full .and. (lo_full > 1 .or. hi_full < dim_data(1)))
++    end if
+     
+     write(*,*) "nside = ", nside
+ 
+@@ -221,6 +236,17 @@ contains
+        std_cube = 0._xp
+        call reshape_up(data, cube, dim_data, dim_cube)
+ 
++       if (use_range) then
++          ! Same padding as reshape_up; padded pixels have no data (std_cube is 0 there, set above).
++          allocate(lo_cube(dim_cube(2), dim_cube(3)), hi_cube(dim_cube(2), dim_cube(3)))
++          lo_cube = 1
++          hi_cube = 0
++          lo_cube((dim_cube(2)-dim_data(2))/2+1:(dim_cube(2)-dim_data(2))/2+dim_data(2), &
++               (dim_cube(3)-dim_data(3))/2+1:(dim_cube(3)-dim_data(3))/2+dim_data(3)) = lo_full
++          hi_cube((dim_cube(2)-dim_data(2))/2+1:(dim_cube(2)-dim_data(2))/2+dim_data(2), &
++               (dim_cube(3)-dim_data(3))/2+1:(dim_cube(3)-dim_data(3))/2+dim_data(3)) = hi_full
++       end if
++
+        !Allocate memory for parameters grids
+        if (descent .eqv. .true.) then
+           allocate(fit_params(3*n_gauss, 1, 1))
+@@ -252,7 +278,14 @@ contains
+ 
+              allocate(cube_mean(dim_cube(1), power, power))
+ 
+-             call mean_array(power, cube, cube_mean)
++             if (use_range) then
++                ! Coarse level: live channels only, union of the children's ranges (mean_array_live).
++                if (allocated(range_lo)) deallocate(range_lo, range_hi)
++                allocate(range_lo(power, power), range_hi(power, power))
++                call mean_array_live(power, cube, lo_cube, hi_cube, cube_mean, range_lo, range_hi)
++             else
++                call mean_array(power, cube, cube_mean)
++             end if
+ 
+              if (n == 0) then
+                 if (init_spec .eqv. .true.) then
+@@ -297,7 +330,10 @@ contains
+                 if (n > 0 .and. n < nside) then
+                    allocate(std_map(power, power))
+ 
+-                   if (noise .eqv. .true.) then
++                   if ((noise .eqv. .true.) .and. use_range) then
++                      call reshape_noise_up(std_data, std_cube, dim_data, dim_cube)
++                      call mean_map_live(power, std_cube, lo_cube, hi_cube, std_map)
++                   else if (noise .eqv. .true.) then
+                       call reshape_noise_up(std_data, std_cube, dim_data, dim_cube)
+                       call mean_map(power, std_cube, std_map) 
+                       ! std_map = std_map / sqrt(real(2**(2*(nside-n)),xp))
+@@ -387,6 +423,13 @@ contains
+     else   
+        call set_stdmap(std_map, data, lstd, ustd)
+     end if
++
++    if (use_range) then
++       if (allocated(range_lo)) deallocate(range_lo, range_hi)
++       allocate(range_lo(dim_data(2), dim_data(3)), range_hi(dim_data(2), dim_data(3)))
++       range_lo = lo_full
++       range_hi = hi_full
++    end if
+     
+     if (regul .eqv. .true.) then
+        ! Budget study (mod_array): the full-resolution level may have its own limit and write checkpoints.
