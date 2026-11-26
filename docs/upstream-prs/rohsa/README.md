@@ -37,7 +37,11 @@ at its upstream PR; it is not for upstream. 0014 is also local only: a separate
 evaluation limit for the full-resolution level (`maxiter_last`) and parameter
 checkpoints of that level at chosen evaluation counts (`checkpoint_at`), both off
 by default, so a budget curve is read off one long run (test:
-`test/rohsa_checkpoint.jl`). Applying all fourteen gives
+`test/rohsa_checkpoint.jl`). 0015 (`filename_range`) is a per-pixel live channel
+range: channels outside it carry no data term and pixels with an empty range
+none at all, for mosaics whose blocks cover different channels. It is off by
+default and could become an upstream PR, but none is drafted (test:
+`test/rohsa_live_range.jl`). Applying all fifteen gives
 `rohsa/upstream/ROHSA` exactly; `scripts/check_rohsa_patches.sh` checks that
 and runs in CI.
 

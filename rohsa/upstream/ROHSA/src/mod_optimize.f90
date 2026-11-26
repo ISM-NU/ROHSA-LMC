@@ -113,10 +113,11 @@ contains
   !! the three derivatives, so no residual cube is stored. The model, the residual and every
   !! derivative are summed in the same order as in the separate loops this replaces. Explicit-shape
   !! arguments let gfortran optimise the loops inside the OpenMP region.
-  subroutine data_term(dim_v, n_gauss, p, line, std, fp, d)
+  !! kf..kl: live channel range of this spectrum (mod_array use_range); 1..dim_v when no range file is given.
+  subroutine data_term(dim_v, n_gauss, p, line, std, kf, kl, fp, d)
     implicit none
 
-    integer, intent(in) :: dim_v, n_gauss
+    integer, intent(in) :: dim_v, n_gauss, kf, kl
     real(xp), intent(in) :: p(3*n_gauss), line(dim_v), std
     real(xp), intent(out) :: fp, d(3*n_gauss)
 
@@ -146,6 +147,14 @@ contains
        end do
     end do
     res = res - line
+    ! Live channel range: residuals outside kf..kl get zero weight, in f and in the gradient below (which only
+    ! sees res). kf > kl zeroes every channel (pixel without data). With the full range nothing changes.
+    do k=1, min(kf-1, dim_v)
+       res(k) = 0._xp
+    end do
+    do k=max(kl+1, 1), dim_v
+       res(k) = 0._xp
+    end do
 
     d = 0._xp
     fp = 0._xp
@@ -187,7 +196,7 @@ contains
     real(xp), intent(inout) :: f
     real(xp), intent(inout), dimension(:), allocatable :: g
 
-    integer :: i, j, l, np
+    integer :: i, j, l, np, kf, kl
     integer(8) :: o
     integer :: n_beta
     real(xp), dimension(:), allocatable :: b_params
@@ -212,11 +221,17 @@ contains
     end do
 
     ! Data term, spectra in parallel; each one sets its own np entries of g.
-    !$omp parallel do private(i, o) schedule(static)
+    !$omp parallel do private(i, o, kf, kl) schedule(static)
     do j=1, dim_x
        do i=1, dim_y
           o = int(np,8) * (int(i-1,8) + int(dim_y,8)*int(j-1,8))
-          call data_term(dim_v, n_gauss, beta(o+1:o+np), cube(:,i,j), std_map(i,j), fpix(i,j), g(o+1:o+np))
+          kf = 1
+          kl = dim_v
+          if (use_range) then
+             kf = range_lo(i,j)
+             kl = range_hi(i,j)
+          end if
+          call data_term(dim_v, n_gauss, beta(o+1:o+np), cube(:,i,j), std_map(i,j), kf, kl, fpix(i,j), g(o+1:o+np))
        end do
     end do
     !$omp end parallel do

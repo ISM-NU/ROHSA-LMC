@@ -3,13 +3,13 @@ module mod_inout
   !! This module read the input user parameters (parameters.txt file / data / noise if true)
   use mod_constants
   use mod_convert
-  use mod_array, only: regul_grad_adjoint, maxiter_last, checkpoint_at, checkpoint_prefix
+  use mod_array, only: regul_grad_adjoint, maxiter_last, checkpoint_at, checkpoint_prefix, filename_range
   
   implicit none
   
   private
   
-  public :: read_cube, read_output, read_map, read_array, read_parameters, save_process
+  public :: read_cube, read_output, read_map, read_array, read_parameters, save_process, read_range
 
 contains
   
@@ -50,7 +50,7 @@ contains
          lambda_mu, lambda_sig, lambda_var_amp, lambda_var_mu, lambda_var_sig, lambda_lym_sig, amp_fact_init, &
          sig_init, lb_sig_init, ub_sig_init, lb_sig, ub_sig, init_option, maxiter_init, maxiter, m, noise, regul, &
          descent, lstd, ustd, iprint, iprint_init, save_grid, lym, init_grid, fileinit, init_spec, regul_grad_adjoint, &
-         maxiter_last, checkpoint_at, checkpoint_prefix
+         maxiter_last, checkpoint_at, checkpoint_prefix, filename_range
     
     open(unit=11, file=filename_parameters, status="old", iostat=ios)
     if (ios /= 0) stop "opening file error"
@@ -161,6 +161,29 @@ contains
     close(11)
   end subroutine read_map
 
+
+  !! Live channel range file (mod_array filename_range): header "ny nx", then one row "y x first last" per pixel,
+  !! 0-based like the cube and noise files; first > last marks a pixel without data. Returns 1-based channels.
+  subroutine read_range(filename, lo, hi)
+    implicit none
+    character(len=512), intent(in) :: filename
+    integer, intent(inout), dimension(:,:), allocatable :: lo, hi
+
+    integer :: ios=0, i, y, x, a, b, ny, nx
+
+    open(unit=11, file=filename, action="read", status="old", iostat=ios)
+    if (ios /= 0) stop "opening range file error"
+    read(11,fmt=*) ny, nx
+    allocate(lo(ny,nx), hi(ny,nx))
+    lo = 1
+    hi = 0
+    do i=1, ny*nx
+       read(11,fmt=*) y, x, a, b
+       lo(y+1,x+1) = a+1
+       hi(y+1,x+1) = b+1
+    enddo
+    close(11)
+  end subroutine read_range
 
   subroutine read_array(filename, array)
     implicit none

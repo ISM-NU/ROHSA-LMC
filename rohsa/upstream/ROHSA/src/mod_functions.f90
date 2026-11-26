@@ -12,7 +12,7 @@ module mod_functions
   
   public :: mean_array, mean_map, dim2nside, dim_data2dim_cube, reshape_up, reshape_down, go_up_level, init_spectrum, &
        upgrade, update, set_stdmap, std_spectrum, mean_spectrum, max_spectrum, init_grid_params, init_new_gauss, &
-       reshape_noise_up
+       reshape_noise_up, mean_array_live, mean_map_live
 
 contains
     
@@ -153,6 +153,104 @@ contains
     enddo
     
   end subroutine mean_map
+
+
+  subroutine mean_array_live(nside, cube, lo, hi, cube_mean, lo_mean, hi_mean)
+    !! Live channel range version of mean_array (used only with a range file, mod_array use_range).
+    !! Coarse-level rule: the range of a coarse pixel is the union (the hull) of its children's ranges, and each
+    !! channel is averaged over the children observed in it. Why union, not intersection: the coarse levels only
+    !! start the next level, and the union keeps every observed channel. The intersection would drop a block's
+    !! extra channels wherever a coarse pixel straddles a block boundary, and at the coarsest levels (which mix
+    !! all blocks) cut the band down to the narrowest block's range. Averaging over the observed children only
+    !! (not dividing by all n**2) keeps fill zeros and pixels without data from diluting the spectrum. A channel
+    !! inside the hull that no child observed (possible only if the children's ranges do not overlap) stays 0.
+    implicit none
+
+    integer, intent(in) :: nside !! nside of the level
+    real(xp), intent(in), dimension(:,:,:), allocatable :: cube !! full-resolution cube (padded)
+    integer, intent(in), dimension(:,:), allocatable :: lo, hi !! full-resolution ranges (padded, 1-based)
+    real(xp), intent(inout), dimension(:,:,:), allocatable :: cube_mean !! average cube
+    integer, intent(inout), dimension(:,:), allocatable :: lo_mean, hi_mean !! ranges of the level
+
+    integer :: i, j, k, l, n, c, y, x, a, b
+    real(xp), dimension(:), allocatable :: spectrum
+    integer, dimension(:), allocatable :: cnt
+
+    allocate(spectrum(size(cube,dim=1)), cnt(size(cube,dim=1)))
+    n = size(cube, dim=2) / nside
+
+    do i=1,size(cube_mean,dim=2)
+       do j=1,size(cube_mean,dim=3)
+          spectrum = 0._xp
+          cnt = 0
+          a = huge(a)
+          b = -huge(b)
+          do k=1,n
+             do l=1,n
+                y = k+((i-1)*n)
+                x = l+((j-1)*n)
+                if (lo(y,x) > hi(y,x)) cycle
+                do c=lo(y,x), hi(y,x)
+                   spectrum(c) = spectrum(c) + cube(c,y,x)
+                   cnt(c) = cnt(c) + 1
+                end do
+                a = min(a, lo(y,x))
+                b = max(b, hi(y,x))
+             enddo
+          enddo
+          do c=1, size(spectrum)
+             if (cnt(c) > 0) spectrum(c) = spectrum(c) / real(cnt(c),xp)
+          end do
+          cube_mean(:,i,j) = spectrum
+          if (a > b) then
+             lo_mean(i,j) = 1
+             hi_mean(i,j) = 0
+          else
+             lo_mean(i,j) = a
+             hi_mean(i,j) = b
+          end if
+       enddo
+    enddo
+
+    deallocate(spectrum, cnt)
+  end subroutine mean_array_live
+
+
+  subroutine mean_map_live(nside, map, lo, hi, map_mean)
+    !! Live channel range version of mean_map for the noise map: the mean over the children that have data
+    !! (non-empty range) and a noise value > 0. A coarse pixel none of whose children qualifies gets 0, i.e. no
+    !! data term, as at full resolution. Dividing by all n**2 would let pixels without data (noise 0) lower the
+    !! coarse noise and so raise the weight of partly covered coarse pixels.
+    implicit none
+
+    integer, intent(in) :: nside
+    real(xp), intent(in), dimension(:,:), allocatable :: map
+    integer, intent(in), dimension(:,:), allocatable :: lo, hi
+    real(xp), intent(inout), dimension(:,:), allocatable :: map_mean
+
+    integer :: i, j, k, l, n, y, x, cnt
+    real(xp) :: val
+
+    n = size(map, dim=2) / nside
+
+    do i=1,size(map_mean,dim=1)
+       do j=1,size(map_mean,dim=2)
+          val = 0._xp
+          cnt = 0
+          do k=1,n
+             do l=1,n
+                y = k+((i-1)*n)
+                x = l+((j-1)*n)
+                if (lo(y,x) > hi(y,x) .or. .not. (map(y,x) > 0._xp)) cycle
+                val = val + map(y,x)
+                cnt = cnt + 1
+             enddo
+          enddo
+          map_mean(i,j) = 0._xp
+          if (cnt > 0) map_mean(i,j) = val / real(cnt,xp)
+       enddo
+    enddo
+  end subroutine mean_map_live
 
 
   subroutine go_up_level(cube_params)
@@ -363,8 +461,9 @@ contains
     real(xp), intent(inout), dimension(:,:,:), allocatable :: params !! parameters cube to update
 
     real(xp) :: c_lym
-    
-    integer :: i,j
+    real(xp) :: cube_max
+
+    integer :: i,j,k
     integer :: n_beta
     real(xp), dimension(:,:,:), allocatable :: lb_3D, ub_3D
     real(xp), dimension(:), allocatable :: lb, ub
@@ -381,6 +480,23 @@ contains
           call init_bounds(cube(:,i,j), n_gauss, dim_v, lb_3D(:,i,j), ub_3D(:,i,j), lb_sig, ub_sig)
        end do
     end do
+
+    ! Live channel range: init_bounds caps the amplitude at the spectrum's maximum, which is 0 for a pixel
+    ! without data, so its amplitudes would be pinned at 0 and the smoothing term would pull its neighbours
+    ! towards 0. Such a pixel has no data term; give it the level's largest cap so the smoothing term alone sets
+    ! its parameters.
+    if (use_range) then
+       cube_max = maxval(cube)
+       do j=1, dim_x
+          do i=1, dim_y
+             if (range_lo(i,j) > range_hi(i,j)) then
+                do k=1, n_gauss
+                   ub_3D(1+(3*(k-1)),i,j) = cube_max
+                end do
+             end if
+          end do
+       end do
+    end if
 
     call ravel_3D(lb_3D, lb, 3*n_gauss, dim_y, dim_x)
     call ravel_3D(ub_3D, ub, 3*n_gauss, dim_y, dim_x)
