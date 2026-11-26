@@ -69,15 +69,17 @@ using Random
         load(config_text), load(config_text * "regul_grad_adjoint = false\n"),
         load(config_text * "maxiter_last = 5000\ncheckpoint_at = [800, 100]\n"),
         load(config_text * "noise_estimate = \"line_free\"\nnoise_per_pixel = true\nnoise_channels = \"1-10,95-106\"\n" *
-             "noise_floor_quantile = 0.01\nmissing_data = \"skip\"\n")
+             "noise_floor_quantile = 0.01\nmissing_data = \"skip\"\nchannel_range_file = \"ranges.fits\"\n")
     end
     @test override_cfg.n_gauss == [4, 6]
     @test (override_cfg.noise_estimate, override_cfg.noise_per_pixel, override_cfg.noise_channels) ==
           ("channel_difference", false, "")
     @test (noise_cfg.noise_estimate, noise_cfg.noise_per_pixel, noise_cfg.noise_channels) ==
           ("line_free", true, "1-10,95-106")
-    @test (override_cfg.missing_data, override_cfg.noise_floor_quantile) == ("zero", 0.0)
-    @test (noise_cfg.missing_data, noise_cfg.noise_floor_quantile) == ("skip", 0.01)
+    @test (override_cfg.missing_data, override_cfg.noise_floor_quantile, override_cfg.channel_range_file) ==
+          ("zero", 0.0, "")
+    @test (noise_cfg.missing_data, noise_cfg.noise_floor_quantile, noise_cfg.channel_range_file) ==
+          ("skip", 0.01, "ranges.fits")
     @test override_cfg.lambda_amp == 250.0
     @test override_cfg.lambda_mu == 100.0
     @test override_cfg.sig_init == 4.0
@@ -236,6 +238,29 @@ using Random
         @test count(==(0.0), lv) == 9
         live = filter(>(0), lv)
         @test count(==(minimum(live)), live) >= length(live) ÷ 5   # about a quarter of the pixels sit on the floor
+        # channel_range_file (rohsa/cli/channel_ranges.jl output, HDUs FIRST and LAST) narrows the live ranges; it
+        # needs missing_data = skip and the crop's size.
+        rf = fill(1, 16, 16); rl = fill(60, 16, 16)
+        rf[1:8, :] .= 31                         # e.g. channels 1-30 attenuated in the left half
+        rng_path = joinpath(dir, "ranges.fits")
+        FITS(rng_path, "w") do f
+            write(f, Int16.(rf); name="FIRST"); write(f, Int16.(rl); name="LAST")
+        end
+        skr = wrapper.write_region_products(holes_path, header, region, joinpath(dir, "skipr"); missing_data="skip",
+                                            channel_range_file=rng_path)
+        rr = Dict((parse(Int, r[1]), parse(Int, r[2])) => (parse(Int, r[3]), parse(Int, r[4]))
+                  for r in split.(readlines(skr.range_path)[2:end], '\t'))
+        @test rr[(0, 0)] == (0, -1)              # no data stays no data
+        @test rr[(5, 5)] == (30, 59)             # narrowed: channels 31-60, 0-based 30-59
+        @test rr[(5, 8)] == (20, 59)             # the file is wider than the cube's own live range there: the cube wins
+        @test_throws ArgumentError wrapper.write_region_products(holes_path, header, region, joinpath(dir, "skipr2");
+                                                                 channel_range_file=rng_path)
+        small = joinpath(dir, "ranges_small.fits")
+        FITS(small, "w") do f
+            write(f, Int16.(rf[1:8, 1:8]); name="FIRST"); write(f, Int16.(rl[1:8, 1:8]); name="LAST")
+        end
+        @test_throws ArgumentError wrapper.write_region_products(holes_path, header, region, joinpath(dir, "skipr3");
+                                                                 missing_data="skip", channel_range_file=small)
         @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad3");
                                                                  missing_data="nan")
         @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad4");

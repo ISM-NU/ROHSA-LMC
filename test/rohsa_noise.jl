@@ -157,3 +157,55 @@ end
     @test isapprox(median(mz[15:end, :]), 0.25; rtol=0.08)
     @test all(0.85 .< mz[15:end, :] ./ m[15:end, :] .< 1.15)
 end
+
+@testset "ROHSA attenuation weight and reliable channel ranges (synthetic mosaic taper)" begin
+    # Two observing blocks: A (x <= 98) covers channels 1-60, B (x >= 99) only 21-60 (channels 1-20 exact zeros). The
+    # mosaic averaged B's emptiness into A's one-block channels 1-20, scaling signal and noise by
+    # w(x) = (99 - x) / 60 (1 at x <= 39, 0.02 at x = 98). A bright line in channels 30-50 everywhere. With 16 px tiles
+    # the tile centres have w = 1, 1, 0.98, 0.71, 0.44, 0.18 on the A side, and the seam crosses tile 7, which holds
+    # only two columns of A (96 pixels, too few differences to measure: filled from the neighbours). Reliable range
+    # (w >= 0.8): from channel 1 in the first three tiles, from channel 21 or 22 beyond (channel 21 forms a pair with
+    # the attenuated channel 20 and can be dropped too: conservative by design); block B pixels keep their channel 21,
+    # since the pair (20, 21) is outside their live range.
+    rng = MersenneTwister(31)
+    nx, ny, nv = 160, 48, 60
+    taper(x) = clamp((99 - x) / 60, 0.0, 1.0)
+    cube = zeros(Float32, nx, ny, nv)
+    for c in 1:nv, y in 1:ny, x in 1:nx
+        v = 0.2 * randn(rng) + 8 * exp(-0.5 * ((c - 40) / 3)^2) + 0.5 * exp(-0.5 * ((c - 12) / 4)^2)
+        if c <= 20
+            v = x >= 99 ? 0.0 : taper(x) * v
+        end
+        cube[x, y, c] = Float32(v)
+    end
+    first, last = RohsaInputsTest.live_channel_ranges(cube)
+    @test all(first[1:98, :] .== 1) && all(first[99:end, :] .== 21) && all(last .== nv)
+    w, ref = RohsaInputsTest.attenuation_weight(cube, first, last; tile=16, smooth=3)
+    @test isapprox(ref, 0.2; rtol=0.05)
+    # The weight follows the taper in the one-block channels (the tiles next to the seam have measured neighbours on
+    # one side only, so the median filter pulls them towards the interior), and is >= 0.8 in the full channels: the
+    # line raises the difference noise, it never lowers it.
+    # w[:, :, k] is the pair of channels k and k + 1: pairs 1-19 attenuated, 21-59 full.
+    @test size(w) == (10, 3, nv - 1)
+    for tx in 1:5
+        @test isapprox(median(w[tx, :, 1:19]), taper((tx - 1) * 16 + 8.5); atol=0.08)
+    end
+    @test median(w[6, :, 1:19]) < 0.5 && median(w[7, :, 1:19]) < 0.5
+    @test all(w[:, :, 21:59] .>= 0.8)
+    rf, rl = RohsaInputsTest.reliable_channel_ranges(first, last, w; tile=16, wmin=0.8)
+    @test all(rl .== nv)
+    @test all(rf[1:48, :] .== 1)
+    @test all(21 .<= rf[49:98, :] .<= 22)        # attenuated channels dropped, also in the tile the seam crosses
+    @test all(rf[99:end, :] .== 21)              # block B: its own live range
+    # Pixels without data stay empty.
+    c2 = copy(cube); c2[1:4, 1:4, :] .= NaN32
+    f2, l2 = RohsaInputsTest.live_channel_ranges(c2)
+    r2f, r2l = RohsaInputsTest.reliable_channel_ranges(f2, l2, w; tile=16)
+    @test all(r2f[1:4, 1:4] .> r2l[1:4, 1:4])
+
+    # The line-free noise map restricted to the reliable range is not biased low by the attenuated channels.
+    m_all = RohsaInputsTest.line_free_noise_map(cube; smooth_px=5)
+    m_rel = RohsaInputsTest.line_free_noise_map(cube; smooth_px=5, ranges=(rf, rl))
+    @test median(m_all[70:92, :]) < 0.17
+    @test isapprox(median(m_rel[70:92, :]), 0.2; rtol=0.1)
+end
