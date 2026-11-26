@@ -1,4 +1,4 @@
-From bac6ec85b66498df9998681a088cdc441d788d63 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
 Date: Sat, 17 Oct 2026 19:47:41 +0500
 Subject: [PATCH] Fix integer overflow in the L-BFGS-B workspace for large
@@ -15,11 +15,10 @@ overflowed in the same way.
 The offsets are now integer*8 and recomputed from n and m on each call,
 the wa dummy argument is assumed-size, and wa is allocated with a 64-bit
 size. Results are unchanged for problems that already fit.
-
 ---
- src/lbfgsb.f         | 59 ++++++++++++++++++--------------------------
- src/mod_minimize.f90 |  4 +--
- 2 files changed, 26 insertions(+), 37 deletions(-)
+ src/lbfgsb.f         | 57 ++++++++++++++++++--------------------------
+ src/mod_minimize.f90 |  4 ++--
+ 2 files changed, 25 insertions(+), 36 deletions(-)
 
 diff --git a/src/lbfgsb.f b/src/lbfgsb.f
 index 46cfaa9..9964a8c 100644
@@ -40,7 +39,14 @@ index 46cfaa9..9964a8c 100644
  c-jlm-jn 
 -      integer   lws,lr,lz,lt,ld,lxp,lwa,
 -     +          lwy,lsy,lss,lwt,lwn,lsnd
--
++c     The workspace offsets are 64-bit integers: 2*m*n exceeds 2**31
++c     for large problems (e.g. 8 Gaussians on a 2048 x 2048 map with
++c     m = 10), and default-integer offsets would wrap around. They are
++c     recomputed from n and m on every call instead of being kept in
++c     isave(1:16).
++      integer*8 lws,lr,lz,lt,ld,lxp,lwa,
++     +          lwy,lsy,lss,lwt,lwn,lsnd,mn,mm
+ 
 -      if (task .eq. 'START') then
 -         isave(1)  = m*n
 -         isave(2)  = m**2
@@ -72,14 +78,6 @@ index 46cfaa9..9964a8c 100644
 -      lt   = isave(14)
 -      lxp  = isave(15)
 -      lwa  = isave(16)
-+c     The workspace offsets are 64-bit integers: 2*m*n exceeds 2**31
-+c     for large problems (e.g. 8 Gaussians on a 2048 x 2048 map with
-+c     m = 10), and default-integer offsets would wrap around. They are
-+c     recomputed from n and m on every call instead of being kept in
-+c     isave(1:16).
-+      integer*8 lws,lr,lz,lt,ld,lxp,lwa,
-+     +          lwy,lsy,lss,lwt,lwn,lsnd,mn,mm
-+
 +      mn   = int(m,8)*int(n,8)
 +      mm   = int(m,8)*int(m,8)
 +      lws  = 1
@@ -120,6 +118,3 @@ index a86ae81..ea8ba77 100644
  
      f = 0._xp
      g = 0._xp
--- 
-2.56.0
-

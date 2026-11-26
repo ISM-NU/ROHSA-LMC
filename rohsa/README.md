@@ -87,12 +87,14 @@ To use a different config file:
 julia --project=. rohsa/cli/preprocess.jl --config path/to/rohsa.toml
 ```
 
-When several `n_gauss` values are supplied in the config, the wrapper runs
-every candidate, keeps every candidate product and trace, and auto-selects one
-result. The full candidate list is written to `rohsa_fit_metrics.csv` and
-`rohsa_product_paths.csv`; the chosen products are written separately to
-`rohsa_selection_summary.csv`, `selected_rohsa_products.csv`, and
-`selected_rohsa_config.toml`.
+`[rohsa] n_gauss` takes one value. A list of several values is an error unless
+`[auto_config]` is enabled; to compare several N, set the `n_gauss` axis under
+`[auto_config]` (see below). The wrapper then runs every candidate, keeps every
+candidate product and trace, and auto-selects one result. The memory preflight
+sizes the job from the largest N among the candidates. The full candidate list
+is written to `rohsa_fit_metrics.csv` and `rohsa_product_paths.csv`; the chosen
+products are written separately to `rohsa_selection_summary.csv`,
+`selected_rohsa_products.csv`, and `selected_rohsa_config.toml`.
 
 ## Auto-Config
 

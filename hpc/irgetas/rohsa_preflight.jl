@@ -4,6 +4,7 @@ using VGT
 using RohsaLMC
 include(joinpath(@__DIR__, "..", "..", "rohsa", "memory.jl"))
 include(joinpath(@__DIR__, "..", "..", "rohsa", "configs.jl"))
+include(joinpath(@__DIR__, "..", "..", "rohsa", "auto_config.jl"))
 
 const IRGETAS_ZEN4_USABLE_GIB = 385_974 / 1024
 const IRGETAS_H100_USABLE_GIB = 770_000 / 1024
@@ -16,22 +17,21 @@ function irgetas_partition(peak_gib::Real)
 end
 
 function inspect_config(config_path::AbstractString)
-    opts = load_rohsa_config(config_path)
-    f = FITS(opts["input"], "r")
+    cfg = load_rohsa_config(config_path)
+    f = FITS(cfg.input, "r")
     nx, ny, nv = try
         size(f[1])
     finally
         close(f)
     end
-    crop = parse(Int, opts["crop-size"])
-    stride = parse(Int, opts["spatial-stride"])
-    source_nx = crop > 0 ? crop : nx
-    source_ny = crop > 0 ? crop : ny
-    out_nx = cld(source_nx, stride)
-    out_ny = cld(source_ny, stride)
-    ns = parse.(Int, split(opts["n-gauss"], ','))
-    estimate = rohsa_memory_estimate(out_nx, out_ny, nv, maximum(ns), parse(Int, opts["m"]))
-    return (; opts, nx=out_nx, ny=out_ny, nv, estimate,
+    source_nx = cfg.crop_size > 0 ? cfg.crop_size : nx
+    source_ny = cfg.crop_size > 0 ? cfg.crop_size : ny
+    out_nx = cld(source_nx, cfg.spatial_stride)
+    out_ny = cld(source_ny, cfg.spatial_stride)
+    # The job must fit the largest candidate: the [auto_config] n_gauss axis can exceed [rohsa] n_gauss.
+    max_n = maximum(c.n_gauss for c in resolved_rohsa_candidates(cfg))
+    estimate = rohsa_memory_estimate(out_nx, out_ny, nv, max_n, cfg.m)
+    return (; cfg, nx=out_nx, ny=out_ny, nv, max_n, estimate,
             partition=irgetas_partition(estimate.peak_gib))
 end
 
@@ -41,6 +41,8 @@ function main(args)
     e = result.estimate
     println("ROHSA output grid: $(result.nx) x $(result.ny) x $(result.nv)")
     println("ROHSA padded grid: $(e.padded_side) x $(e.padded_side)")
+    # submit_rohsa.sh reads this line to size the job request.
+    println("ROHSA largest candidate N: $(result.max_n)")
     println("Conservative peak estimate: $(round(e.peak_gib; digits=1)) GiB")
     if result.partition == :ZEN4
         println("Irgetas result: fits the conservative ZEN4 safety limit.")

@@ -37,14 +37,15 @@ function run_rohsa(rohsa_bin::String, params_path::String, out_path::String, reu
     return "ran"
 end
 
-function rohsa_run_label(n_gauss::Int, opts)
-    candidate_id = get(opts, "candidate-id", "")
-    return isempty(candidate_id) ? "rohsa_n$(n_gauss)" : "rohsa_$(candidate_id)"
+function rohsa_run_label(cand::RohsaCandidate)
+    return isempty(cand.id) ? "rohsa_n$(cand.n_gauss)" : "rohsa_$(cand.id)"
 end
 
-function run_rohsa_decomposition_stage!(region_dir, region, region_products, n_gauss::Int, opts, rohsa_bin::String, reuse::Bool)
-    candidate_id = get(opts, "candidate-id", "")
-    run_label = rohsa_run_label(n_gauss, opts)
+function run_rohsa_decomposition_stage!(region_dir, region, region_products, cfg::RohsaConfig, cand::RohsaCandidate,
+                                        rohsa_bin::String)
+    n_gauss = cand.n_gauss
+    candidate_id = cand.id
+    run_label = rohsa_run_label(cand)
     params_name = isempty(candidate_id) ? "parameters_n$(n_gauss).txt" : "$(run_label)_parameters.txt"
     timeout_name = isempty(candidate_id) ? "timestep_n$(n_gauss).dat" : "$(run_label)_timestep.dat"
     params_path = joinpath(region_dir, params_name)
@@ -53,8 +54,8 @@ function run_rohsa_decomposition_stage!(region_dir, region, region_products, n_g
     # Parameter files are regenerated on every attempt so trace files always
     # capture the current TOML options, even when a fitted output is reused.
     write_rohsa_parameters(params_path, region_products.rohsa_input_path, region_products.rms_path,
-                           rohsa_out, timeout_path, n_gauss, opts)
-    status = run_rohsa(rohsa_bin, params_path, rohsa_out, reuse)
+                           rohsa_out, timeout_path, cfg, cand)
+    status = run_rohsa(rohsa_bin, params_path, rohsa_out, cfg.reuse)
     trace_path = joinpath(region_dir, "$(run_label)_run_trace.toml")
     open(trace_path, "w") do io
         TOML.print(io, Dict(
@@ -68,7 +69,7 @@ function run_rohsa_decomposition_stage!(region_dir, region, region_products, n_g
             "parameters" => params_path,
             "rohsa_output" => rohsa_out,
             "timeout" => timeout_path,
-            "config" => rohsa_trace_config(opts, n_gauss),
+            "config" => rohsa_trace_config(cfg, cand),
         ); sorted=true)
     end
     return (; params_path, rohsa_out, timeout_path, trace_path, status, run_label, candidate_id)

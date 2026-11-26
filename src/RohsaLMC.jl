@@ -19,7 +19,7 @@ include("rohsa_layers.jl")
 include("derotate.jl")
 
 export HI_COLUMN_DENSITY_FACTOR, DOPPLER_TEMPERATURE_FACTOR
-export read_rohsa_parameters, reconstruct_rohsa_components
+export read_rohsa_parameters, read_rohsa_checkpoint, reconstruct_rohsa_components
 export doppler_temperature_k, fwhm_doppler_temperature, rohsa_component_rows, rohsa_fit_metrics
 export write_rohsa_decomposition_products
 export ROHSA_LAYER_NAMES, ROHSA_PHASE_NAMES, velocity_layer_weights, reference_centroid_channels

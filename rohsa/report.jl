@@ -21,7 +21,7 @@ function sorted_rows(rows, columns)
     return sort(collect(rows); by=row -> tuple([string(get(row, col, "")) for col in columns]...))
 end
 
-function write_report(path, opts, region_rows, rohsa_metrics, selected_rows, output_paths, visual_paths)
+function write_report(path, cfg::RohsaConfig, region_rows, rohsa_metrics, selected_rows, output_paths, visual_paths)
     mkpath(dirname(path))
     open(path, "w") do io
         println(io, "# ROHSA Preprocessing Pipeline")
@@ -32,8 +32,8 @@ function write_report(path, opts, region_rows, rohsa_metrics, selected_rows, out
         println(io)
         println(io, "## Inputs")
         println(io)
-        println(io, "- H I cube: `", opts["input"], "`")
-        println(io, "- ROHSA Gaussian counts: `", opts["n-gauss"], "`")
+        println(io, "- H I cube: `", cfg.input, "`")
+        println(io, "- ROHSA Gaussian counts: `", join(cfg.n_gauss, ","), "`")
         println(io)
         println(io, "## Input Region")
         println(io)
@@ -46,8 +46,8 @@ function write_report(path, opts, region_rows, rohsa_metrics, selected_rows, out
         println(io)
         println(io, "## ROHSA Fit Metrics")
         println(io)
-        if parse_bool(get(opts, "derive-products", "true"))
-            if parse_bool(get(opts, "auto-config-enabled", "false"))
+        if cfg.derive_products
+            if cfg.auto.enabled
                 println(io, "| Region | Candidate | N | selected | score | recon | physical | stability | model/data | moment RMSE | moment bias | residual skew |")
                 println(io, "|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|")
                 for row in sorted_rows(rohsa_metrics, ["region", "candidate_id", "n_gauss"])
@@ -80,8 +80,8 @@ function write_report(path, opts, region_rows, rohsa_metrics, selected_rows, out
             end
         end
         println(io)
-        if parse_bool(get(opts, "derive-products", "true"))
-            if parse_bool(get(opts, "auto-config-enabled", "false"))
+        if cfg.derive_products
+            if cfg.auto.enabled
                 println(io, "Auto-config selected the lowest physical-decomposition score: reconstruction quality plus penalties for negligible components, sigma-bound pileup, excessive broad-component fraction, duplicate components, and rough parameter maps. This is a preprocessing diagnostic, not downstream VGT validation.")
             else
                 println(io, "The selected ROHSA run minimizes a reporting-only score based on flux recovery, moment residuals, moment bias, and residual skewness. Residual skewness near zero is preferred because positive skew suggests missed emission and negative skew suggests overfitting.")
@@ -93,7 +93,7 @@ function write_report(path, opts, region_rows, rohsa_metrics, selected_rows, out
         if isempty(selected_rows)
             println(io, "No selected product set was written because product derivation was disabled.")
         else
-            if parse_bool(get(opts, "auto-config-enabled", "false"))
+            if cfg.auto.enabled
                 println(io, "| Region | selected candidate | selected N | score | recon | physical | stability | product root |")
                 println(io, "|---|---|---:|---:|---:|---:|---:|---|")
             else
@@ -101,7 +101,7 @@ function write_report(path, opts, region_rows, rohsa_metrics, selected_rows, out
                 println(io, "|---|---:|---:|---|")
             end
             for row in sorted_rows(selected_rows, ["region"])
-                if parse_bool(get(opts, "auto-config-enabled", "false"))
+                if cfg.auto.enabled
                     @printf(io, "| `%s` | `%s` | %d | %.4f | %.4f | %.4f | %.4f | `%s` |\n",
                             row["region"], get(row, "selected_candidate_id", ""),
                             row["selected_n_gauss"], row["selection_score"],
@@ -143,13 +143,13 @@ function write_report(path, opts, region_rows, rohsa_metrics, selected_rows, out
     return path
 end
 
-function write_manifest(path::AbstractString, opts, rohsa_bin::AbstractString, visual_paths)
+function write_manifest(path::AbstractString, cfg::RohsaConfig, rohsa_bin::AbstractString, visual_paths)
     mkpath(dirname(path))
     open(path, "w") do io
         TOML.print(io, Dict(
             "generated_at_utc" => string(Dates.format(Dates.now(Dates.UTC), dateformat"yyyy-mm-ddTHH:MM:SS"), "Z"),
             "purpose" => "ROHSA preprocessing and product derivation for downstream VGT input cubes; no VGT comparison is run.",
-            "options" => opts,
+            "options" => cfg.manifest_options,
             "rohsa_bin" => rohsa_bin,
             "visual_outputs" => visual_paths,
         ); sorted=true)

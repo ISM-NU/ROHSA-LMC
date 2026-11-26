@@ -57,18 +57,22 @@ CPUs mostly sit idle.
 
 ### Resources
 
-`submit_rohsa.sh` picks these from `crop_size` and `n_gauss`; override with
+`submit_rohsa.sh` picks these from `crop_size` and the largest N of the run (the whole `[auto_config]` sweep counts); override with
 `CPUS=`, `MEM=` or `TIME=` in front of the command.
 
-| Run | CPUs | Measured peak memory | Measured wall time | Requested |
+| Run | CPUs | Measured peak memory | Measured wall time | Requested for that run |
 |---|---|---|---|---|
 | 512² crop, N = 6-8 | 16 | 5-6 GB | 20-31 min | 12 GB, 3 h |
 | 512² crop, N = 16 | 16 | 6 GB | 20-41 min | 12 GB, 3 h |
 | 1024² crop | 16 | not yet measured with OpenMP | | 40 GB, 12 h |
-| 2048² crop, N = 6 | 32 | job 31677 | ~6 h | 100 GB, 1 day |
-| 2048² crop, N = 8 | 32 | 28 GB before the last level | job 31697 | 140 GB, 1.5 days |
+| 2048² crop, N = 6 | 32 | not recorded (job 31677) | ~6 h | 100 GB, 1 day |
+| 2048² crop, N = 8 | 32 | 28 GB before the last level | not recorded (job 31697) | 140 GB, 1.5 days |
 | 2048² crop, 159 channels, N = 16 | 32 | 89 GB | 3.4-3.9 h | 120 GB, 8 h |
 | whole cube (`crop_size = 0`) | 32 | not run | | 180 GB, 3 days |
+
+`submit_rohsa.sh` requests 120 GB at 2048² for every N above 6, so the request
+never drops as N grows. The 140 GB in the N = 8 row is what job 31697 asked for;
+N 7-8 has no measured peak, and N = 16 (more memory than N 8) peaked at 89 GB.
 
 Check a finished job with
 `sacct -j JOB_ID -o JobID,State,Elapsed,AllocCPUS,ReqMem,MaxRSS` and tighten the
@@ -125,6 +129,35 @@ Options go in `CUBES` before the `name=cube.fits` pairs. `--blank-from data` kee
 the survey footprint of the cube `data` (all-zero or non-finite spectra) NaN in
 every output cube; without it, ROHSA crops and model cubes that hold zero outside
 the survey de-rotate to zero there.
+
+## Experiment repos that guard on a build
+
+LMC-cold-gas `hpc/irgetas/submit_dirinj.sh` (`fits` phase) and
+`submit_r1125_wts.sh` (`build_ok`) refuse to submit unless three md5 sums match:
+the binary `rohsa/upstream/ROHSA/src/ROHSA`, `rohsa/inputs.jl` and
+`rohsa/configs.jl`. They read `$ROHSA_REPO`, default `~/rohsa-weights`. That is
+a separate checkout (`r1125-weights`, commit 2579fa5), not the ROHSA-LMC
+submodule pinned under `deps/` in LMC-cold-gas, so bumping the pin does not
+trip them. Moving the checkout to any commit that changes one of the files
+does, including the tip of `r1125-weights`.
+
+The guard does not cover `preprocess.jl`, `auto_config.jl` or `runner.jl`, which
+also change between builds.
+
+When the build moves (a new checkout of `$ROHSA_REPO`, or a rebuild after its
+sources changed), refresh, in this order:
+
+1. The default of `regul_grad_adjoint`. The 2579fa5 build leaves it off; on
+   `main` (0c061f1 onward) it is on, which changes the fits. None of the 66
+   `*inject*` configs or the 10 `lmc2048_n16_smooth10_noclip_*` configs set it.
+   Set `regul_grad_adjoint = false` in them to keep the old behaviour, or refit
+   the baselines (`_ctl`, `_wts`, `_skip`) with the new default.
+2. One baseline. Refit one and diff its `rohsa_n<N>.dat` against the recorded
+   one. Continue only if the difference is expected.
+3. The md5 lines in both scripts: binary (`submit_dirinj.sh:81`,
+   `submit_r1125_wts.sh:62`), `inputs.jl` (`:82`, `:63`) and `configs.jl`
+   (`:83`, `:64`). The binary changes whenever `rohsa.slurm` rebuilds, so
+   recompute it after the first job on the new checkout has built it.
 
 ## Citations
 

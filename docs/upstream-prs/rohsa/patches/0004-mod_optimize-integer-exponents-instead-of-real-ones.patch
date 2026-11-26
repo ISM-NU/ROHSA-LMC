@@ -1,7 +1,7 @@
-From 2d9f29dbed41d4b78bda0b7691fdf8ea480872e9 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
 Date: Sat, 17 Oct 2026 19:50:46 +0500
-Subject: [PATCH 3/3] mod_optimize: integer exponents instead of real ones
+Subject: [PATCH] mod_optimize: integer exponents instead of real ones
 
 x**2._xp and x**3._xp are real powers; gfortran evaluates many of them
 with a call to pow(), which took about a fifth of the run time in a
@@ -10,7 +10,6 @@ profile of f_g_cube_fast. x**2 and x**3 compile to multiplications.
 Mathematically identical; the results differ only by the rounding of
 pow() versus x*x (per-pixel integrated model on a 256 x 256 crop:
 median 9e-5, 99th percentile 3.5e-3 relative).
-
 ---
  src/mod_optimize.f90 | 40 ++++++++++++++++++++--------------------
  1 file changed, 20 insertions(+), 20 deletions(-)
@@ -133,6 +132,3 @@ index 74ab1a4..b494bcd 100644
                            
               dR_over_dB(1+(3*(k-1)),i,j) = lambda_amp * conv_conv_amp(i,j)
               dR_over_dB(2+(3*(k-1)),i,j) = lambda_mu * conv_conv_mu(i,j)
--- 
-2.56.0
-

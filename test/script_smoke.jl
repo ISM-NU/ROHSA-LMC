@@ -7,24 +7,23 @@ using Random
     Core.eval(wrapper, :(using Test))
     Base.include(wrapper, joinpath(@__DIR__, "..", "rohsa", "cli", "preprocess.jl"))
 
-    opts = wrapper.parse_args(String[])
-    @test opts["input"] == "data/exp_raw/Tb_combined_mw_full_hnv_resOG_reprojected_on_gass.fits"
-    @test opts["output-dir"] == "validation_output/rohsa_preprocessing"
-    @test wrapper.parse_int_list(opts["n-gauss"]) == [6]
-    @test wrapper.parse_bool(opts["write-visuals"]) == true
-    @test opts["spatial-stride"] == "1"
-    @test opts["derive-products"] == "true"
-    @test opts["memory-gb"] == "auto"
-    @test opts["lambda-amp"] == "100.0"
-    @test opts["lambda-mu"] == "100.0"
-    @test opts["sig-init"] == "4.0"
-    @test isfile(opts["config-path"])
+    cfg = wrapper.parse_args(String[])
+    @test cfg.input == "data/exp_raw/Tb_combined_mw_full_hnv_resOG_reprojected_on_gass.fits"
+    @test cfg.output_dir == "validation_output/rohsa_preprocessing"
+    @test cfg.n_gauss == [6]
+    @test cfg.write_visuals == true
+    @test cfg.spatial_stride == 1
+    @test cfg.derive_products == true
+    @test cfg.memory_gb === nothing
+    @test cfg.lambda_amp == 100.0
+    @test cfg.lambda_mu == 100.0
+    @test cfg.sig_init == 4.0
+    @test isfile(cfg.config_path)
     @test wrapper.upstream_rohsa_source_dir() == normpath(joinpath(@__DIR__, "..", "rohsa", "upstream", "ROHSA"))
     @test wrapper.upstream_rohsa_binary() == joinpath(wrapper.upstream_rohsa_source_dir(), "src", "ROHSA")
 
-    override_opts = mktempdir() do dir
-        config_path = joinpath(dir, "rohsa.toml")
-        write(config_path, """
+    override_cfg, no_adjoint_cfg, budget_cfg, noise_cfg = mktempdir() do dir
+        config_text = """
         [input]
         input = "data/exp_raw/component.fits"
         output_dir = "validation_output/rohsa_example"
@@ -60,23 +59,39 @@ using Random
         iprint = -1
         iprint_init = -1
         save_grid = false
-        """)
-        wrapper.parse_args(["--config", config_path])
+        """
+        load(text) = begin
+            config_path = joinpath(dir, "rohsa.toml")
+            write(config_path, text)
+            wrapper.parse_args(["--config", config_path])
+        end
+        @test_throws ArgumentError load(config_text * "checkpoint_at = [0]\n")
+        load(config_text), load(config_text * "regul_grad_adjoint = false\n"),
+        load(config_text * "maxiter_last = 5000\ncheckpoint_at = [800, 100]\n"),
+        load(config_text * "noise_estimate = \"line_free\"\nnoise_per_pixel = true\nnoise_channels = \"1-10,95-106\"\n")
     end
-    @test wrapper.parse_int_list(override_opts["n-gauss"]) == [4, 6]
-    @test override_opts["lambda-amp"] == "250.0"
-    @test override_opts["lambda-mu"] == "100.0"
-    @test override_opts["sig-init"] == "4.0"
-    @test override_opts["lb-sig"] == "1.0"
-    @test wrapper.parse_bool(override_opts["write-visuals"]) == false
-    @test override_opts["spatial-stride"] == "1"
-    @test override_opts["derive-products"] == "true"
+    @test override_cfg.n_gauss == [4, 6]
+    @test (override_cfg.noise_estimate, override_cfg.noise_per_pixel, override_cfg.noise_channels) ==
+          ("channel_difference", false, "")
+    @test (noise_cfg.noise_estimate, noise_cfg.noise_per_pixel, noise_cfg.noise_channels) ==
+          ("line_free", true, "1-10,95-106")
+    @test override_cfg.lambda_amp == 250.0
+    @test override_cfg.lambda_mu == 100.0
+    @test override_cfg.sig_init == 4.0
+    @test override_cfg.lb_sig == 1.0
+    @test override_cfg.write_visuals == false
+    @test override_cfg.spatial_stride == 1
+    @test override_cfg.derive_products == true
+    # A plain n_gauss list is an error; several N need the [auto_config] n_gauss axis.
+    @test_throws ArgumentError wrapper.resolved_rohsa_candidates(override_cfg)
+    single = only(wrapper.resolved_rohsa_candidates(cfg))
+    @test single.n_gauss == 6 && isempty(single.id)
     @test_throws ArgumentError wrapper.parse_args(["--unknown-option", "value"])
 
-    laptop_opts = wrapper.parse_args(["--config", joinpath(@__DIR__, "..", "configs", "rohsa", "full_cube_laptop_stride8.toml")])
-    @test laptop_opts["spatial-stride"] == "8"
-    @test wrapper.parse_bool(laptop_opts["derive-products"]) == false
-    @test wrapper.parse_bool(laptop_opts["write-region-fits"]) == false
+    laptop_cfg = wrapper.parse_args(["--config", joinpath(@__DIR__, "..", "configs", "rohsa", "full_cube_laptop_stride8.toml")])
+    @test laptop_cfg.spatial_stride == 8
+    @test laptop_cfg.derive_products == false
+    @test laptop_cfg.write_region_fits == false
     estimate = wrapper.rohsa_memory_estimate(453, 453, 106, 6, 10)
     @test estimate.padded_side == 512
     @test estimate.peak_gib < 10
@@ -166,6 +181,30 @@ using Random
         @test count(==(0.0), values(vals)) == 8
         @test vals[(4, 2)] == 0.0          # (y, x) 0-based = mask[3, 5]
         @test vals[(0, 0)] ≈ plain.sigma
+
+        # Default output unchanged by the new options: the scalar from the channel-difference estimate, written by the
+        # scalar writer byte for byte.
+        @test plain.sigma == wrapper.robust_channel_difference_noise(noise)
+        ref_rms = joinpath(dir, "ref_rms.dat")
+        wrapper.write_rms_map(ref_rms, 16, 16, plain.sigma)
+        @test read(ref_rms) == read(plain.rms_path)
+
+        # noise_estimate = line_free: scalar by default, the per-pixel map with noise_per_pixel; held-out pixels
+        # still get 0; bad option values are rejected.
+        lf = wrapper.write_region_products(input_path, header, region, joinpath(dir, "lf"); noise_estimate="line_free")
+        @test isapprox(lf.sigma, 0.3; rtol=0.1)
+        lfvals = unique(parse(Float64, split(l, '\t')[3]) for l in readlines(lf.rms_path)[2:end])
+        @test length(lfvals) == 1
+        lfp = wrapper.write_region_products(input_path, header, region, joinpath(dir, "lfp");
+                                            noise_estimate="line_free", noise_per_pixel=true, holdout_mask=mask_path)
+        pvals = [parse(Float64, split(l, '\t')[3]) for l in readlines(lfp.rms_path)[2:end]]
+        @test count(==(0.0), pvals) == 8
+        @test length(unique(filter(>(0), pvals))) > 1
+        @test all(v -> v == 0 || isapprox(v, 0.3; rtol=0.25), pvals)
+        @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad");
+                                                                 noise_estimate="lstd")
+        @test_throws ArgumentError wrapper.write_region_products(input_path, header, region, joinpath(dir, "bad2");
+                                                                 noise_per_pixel=true)
     end
 
     rows = [
@@ -192,7 +231,9 @@ using Random
         rms_path = joinpath(dir, "rms.dat")
         out_path = joinpath(dir, "out.dat")
         timeout_path = joinpath(dir, "timeout.dat")
-        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, 6, override_opts)
+        cand = wrapper.RohsaCandidate("", 6, override_cfg.lambda_amp, override_cfg.lambda_mu, override_cfg.lambda_sig,
+                                      override_cfg.lambda_var_amp, override_cfg.lambda_var_mu, override_cfg.lambda_var_sig)
+        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, override_cfg, cand)
         text = read(params_path, String)
         @test occursin("lambda_amp = 250.0d0", text)
         @test occursin("lambda_mu = 100.0d0", text)
@@ -200,9 +241,16 @@ using Random
         @test occursin("noise = .false.", text)
         # On by default. "false" writes nothing, so ROHSA binaries without the switch still read the file.
         @test occursin("regul_grad_adjoint = .true.", text)
-        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, 6,
-                                       merge(override_opts, Dict("regul-grad-adjoint" => "false")))
+        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, no_adjoint_cfg, cand)
         @test !occursin("regul_grad_adjoint", read(params_path, String))
+        # Budget-study switches: absent unless set; checkpoints go next to the output, sorted.
+        @test !occursin("maxiter_last", text) && !occursin("checkpoint", text)
+        @test budget_cfg.maxiter_last == 5000 && budget_cfg.checkpoint_at == [100, 800]
+        wrapper.write_rohsa_parameters(params_path, dat_path, rms_path, out_path, timeout_path, budget_cfg, cand)
+        text = read(params_path, String)
+        @test occursin("maxiter_last = 5000", text)
+        @test occursin("checkpoint_at = 100,800", text)
+        @test occursin("checkpoint_prefix = '$(joinpath(dir, "checkpoints", "rohsa_n6"))'", text)
     end
 
     # Per-pixel noise map for ROHSA: header "ny nx", rows "y x sigma" (0-based), bad pixels written as 0

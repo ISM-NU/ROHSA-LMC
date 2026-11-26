@@ -27,6 +27,9 @@ const ROHSA_CONFIG_KEYS = Dict(
     "clip_negative" => "clip-negative",
     "noise_map" => "noise-map",
     "holdout_mask" => "holdout-mask",
+    "noise_estimate" => "noise-estimate",
+    "noise_per_pixel" => "noise-per-pixel",
+    "noise_channels" => "noise-channels",
     "n_gauss" => "n-gauss",
     "lambda_amp" => "lambda-amp",
     "lambda_mu" => "lambda-mu",
@@ -44,6 +47,8 @@ const ROHSA_CONFIG_KEYS = Dict(
     "init_option" => "init-option",
     "maxiter_init" => "maxiter-init",
     "maxiter" => "maxiter",
+    "maxiter_last" => "maxiter-last",
+    "checkpoint_at" => "checkpoint-at",
     "m" => "m",
     "noise" => "rohsa-noise",
     "regul" => "regul",
@@ -103,6 +108,11 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     # 2026-11-25 (same fix as antoinemarchal/ROHSA-FITS#4); set "false" to reproduce runs made before.
     # Emitted only when true, so "false" also works with ROHSA binaries that lack the switch.
     "regul-grad-adjoint" => "true",
+    # Budget study (mod_array.f90): evaluation limit of the full-resolution level only (0 = maxiter), and
+    # evaluation counts at which that level's parameters are written to <run>/checkpoints/<run label>_e<k>.ckpt
+    # (read with read_rohsa_checkpoint). Emitted only when set, so older binaries still read the namelist.
+    "maxiter-last" => "0",
+    "checkpoint-at" => "",
     # Per-pixel noise for ROHSA (2D FITS, crop-sized, Julia x-y order). Empty = one level from the cube
     # (robust_channel_difference_noise). Pixels with NaN or <= 0 are written as 0, which ROHSA skips in the data
     # term at the full-resolution level (their parameters follow the smoothing term): used for held-out blocks.
@@ -111,6 +121,14 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     # the smoothing term only (full-resolution level; coarse levels still average them in). Scoring the fit on
     # them measures how well a configuration predicts spectra it did not fit.
     "holdout-mask" => "",
+    # How the noise level for rms_map.dat is measured. "channel_difference" (default, unchanged): adjacent-channel
+    # MAD / sqrt(2) over every channel of the crop; line slopes raise it, channel correlation lowers it.
+    # "line_free": per-pixel robust std of the voxels without line emission (inputs.jl line_free_noise_map);
+    # ROHSA gets its median unless noise-per-pixel = true, then the map. noise-channels ("1-10,95-106") replaces the
+    # emission mask with fixed line-free channels. A noise-map file wins over both.
+    "noise-estimate" => "channel_difference",
+    "noise-per-pixel" => "false",
+    "noise-channels" => "",
     "auto-config-enabled" => "false",
     "auto-config-profile" => "physical_decomposition",
     "auto-config-max-candidates" => "24",
@@ -130,6 +148,201 @@ function config_value_string(value)
         return join(string.(value), ",")
     end
     return string(value)
+end
+
+function parse_bool(raw)
+    value = lowercase(string(raw))
+    value in ("true", "yes", "1", ".true.", "t") && return true
+    value in ("false", "no", "0", ".false.", "f") && return false
+    throw(ArgumentError("Expected boolean string, got $(repr(raw))"))
+end
+
+fortran_bool(flag::Bool) = flag ? ".true." : ".false."
+
+list_items(raw::AbstractString) = [strip(part) for part in split(raw, ",") if !isempty(strip(part))]
+
+# Evaluation counts for checkpoint_at: at most 64 (mod_array.f90), positive, written in ascending order.
+function parse_checkpoint_at(raw::AbstractString)
+    vals = parse.(Int, list_items(raw))
+    length(vals) <= 64 || throw(ArgumentError("checkpoint_at takes at most 64 values"))
+    all(>(0), vals) || throw(ArgumentError("checkpoint_at values must be positive"))
+    return sort(unique(vals))
+end
+
+function parse_int_list(raw::AbstractString)
+    vals = parse.(Int, list_items(raw))
+    isempty(vals) && throw(ArgumentError("Expected at least one integer in list, got $(repr(raw))"))
+    return vals
+end
+
+# Settings of the optional `[auto_config]` candidate search. Each axis lists the
+# values to try; an axis the config leaves out holds the single `[rohsa]` value.
+struct AutoConfig
+    enabled::Bool
+    profile::String
+    max_candidates::Int
+    n_gauss::Vector{Int}
+    lambda_amp::Vector{Float64}
+    lambda_mu::Vector{Float64}
+    lambda_sig::Vector{Float64}
+    lambda_var_amp::Vector{Float64}
+    lambda_var_mu::Vector{Float64}
+    lambda_var_sig::Vector{Float64}
+    small_component_fraction::Float64
+    broad_fraction_limit::Float64
+    sigma_bound_tolerance::Float64
+    duplicate_velocity_kms::Float64
+    duplicate_sigma_kms::Float64
+    physical_weight::Float64
+    stability_weight::Float64
+end
+
+# A ROHSA config, parsed once from the TOML values by `RohsaConfig(opts)`. Code
+# reads these fields and never parses option strings again.
+Base.@kwdef struct RohsaConfig
+    input::String
+    output_dir::String
+    crop_size::Int
+    crop_x0::Int
+    crop_y0::Int
+    spatial_stride::Int
+    reuse::Bool
+    write_visuals::Bool
+    derive_products::Bool
+    write_region_fits::Bool
+    write_cubes::Bool
+    keep_rohsa_input::Bool
+    preflight_only::Bool
+    force_full_cube::Bool
+    memory_gb::Union{Nothing, Float64}  # nothing: the machine's RAM
+    safe_memory_fraction::Float64
+    fits_extension::String
+    spectral_kernel::String
+    clip_negative::Bool
+    noise_map::String
+    holdout_mask::String
+    noise_estimate::String
+    noise_per_pixel::Bool
+    noise_channels::String
+    n_gauss::Vector{Int}
+    lambda_amp::Float64
+    lambda_mu::Float64
+    lambda_sig::Float64
+    lambda_var_amp::Float64
+    lambda_var_mu::Float64
+    lambda_var_sig::Float64
+    amp_fact_init::Float64
+    sig_init::Float64
+    lb_sig_init::Float64
+    ub_sig_init::Float64
+    lb_sig::Float64
+    ub_sig::Float64
+    regul_grad_adjoint::Bool
+    init_option::String
+    maxiter_init::Int
+    maxiter::Int
+    maxiter_last::Int  # 0: the full-resolution level keeps maxiter
+    checkpoint_at::Vector{Int}
+    m::Int
+    noise::Bool
+    regul::Bool
+    descent::Bool
+    lstd::Int
+    ustd::Int
+    iprint::Int
+    iprint_init::Int
+    save_grid::Bool
+    auto::AutoConfig
+    config_path::String
+    # The flattened TOML values as written, recorded verbatim in manifest.toml
+    # (a later run reads its geometry keys back from there). No code reads
+    # values from here.
+    manifest_options::Dict{String, String}
+end
+
+function RohsaConfig(o::Dict{String, String})
+    getint(key) = parse(Int, o[key])
+    getfloat(key) = parse(Float64, o[key])
+    getflag(key) = parse_bool(o[key])
+    axis(key, base) = haskey(o, "auto-config-$key") ? o["auto-config-$key"] : base
+    float_axis(key) = parse.(Float64, list_items(axis(key, o[key])))
+    n_gauss = parse_int_list(o["n-gauss"])
+    auto = AutoConfig(
+        getflag("auto-config-enabled"),
+        o["auto-config-profile"],
+        getint("auto-config-max-candidates"),
+        parse.(Int, list_items(axis("n-gauss", o["n-gauss"]))),
+        float_axis("lambda-amp"),
+        float_axis("lambda-mu"),
+        float_axis("lambda-sig"),
+        float_axis("lambda-var-amp"),
+        float_axis("lambda-var-mu"),
+        float_axis("lambda-var-sig"),
+        getfloat("auto-config-small-component-fraction"),
+        getfloat("auto-config-broad-fraction-limit"),
+        getfloat("auto-config-sigma-bound-tolerance"),
+        getfloat("auto-config-duplicate-velocity-kms"),
+        getfloat("auto-config-duplicate-sigma-kms"),
+        getfloat("auto-config-physical-weight"),
+        getfloat("auto-config-stability-weight"),
+    )
+    return RohsaConfig(;
+        input=o["input"],
+        output_dir=o["output-dir"],
+        crop_size=getint("crop-size"),
+        crop_x0=getint("crop-x0"),
+        crop_y0=getint("crop-y0"),
+        spatial_stride=getint("spatial-stride"),
+        reuse=getflag("reuse"),
+        write_visuals=getflag("write-visuals"),
+        derive_products=getflag("derive-products"),
+        write_region_fits=getflag("write-region-fits"),
+        write_cubes=getflag("write-cubes"),
+        keep_rohsa_input=getflag("keep-rohsa-input"),
+        preflight_only=getflag("preflight-only"),
+        force_full_cube=getflag("force-full-cube"),
+        memory_gb=lowercase(o["memory-gb"]) == "auto" ? nothing : getfloat("memory-gb"),
+        safe_memory_fraction=getfloat("safe-memory-fraction"),
+        fits_extension=o["fits-extension"],
+        spectral_kernel=o["spectral-kernel"],
+        clip_negative=getflag("clip-negative"),
+        noise_map=o["noise-map"],
+        holdout_mask=o["holdout-mask"],
+        noise_estimate=o["noise-estimate"],
+        noise_per_pixel=getflag("noise-per-pixel"),
+        noise_channels=o["noise-channels"],
+        n_gauss,
+        lambda_amp=getfloat("lambda-amp"),
+        lambda_mu=getfloat("lambda-mu"),
+        lambda_sig=getfloat("lambda-sig"),
+        lambda_var_amp=getfloat("lambda-var-amp"),
+        lambda_var_mu=getfloat("lambda-var-mu"),
+        lambda_var_sig=getfloat("lambda-var-sig"),
+        amp_fact_init=getfloat("amp-fact-init"),
+        sig_init=getfloat("sig-init"),
+        lb_sig_init=getfloat("lb-sig-init"),
+        ub_sig_init=getfloat("ub-sig-init"),
+        lb_sig=getfloat("lb-sig"),
+        ub_sig=getfloat("ub-sig"),
+        regul_grad_adjoint=getflag("regul-grad-adjoint"),
+        init_option=o["init-option"],
+        maxiter_init=getint("maxiter-init"),
+        maxiter=getint("maxiter"),
+        maxiter_last=getint("maxiter-last"),
+        checkpoint_at=parse_checkpoint_at(o["checkpoint-at"]),
+        m=getint("m"),
+        noise=getflag("rohsa-noise"),
+        regul=getflag("regul"),
+        descent=getflag("descent"),
+        lstd=getint("lstd"),
+        ustd=getint("ustd"),
+        iprint=getint("iprint"),
+        iprint_init=getint("iprint-init"),
+        save_grid=getflag("save-grid"),
+        auto,
+        config_path=o["config-path"],
+        manifest_options=o,
+    )
 end
 
 function load_rohsa_config(path::AbstractString)
@@ -161,24 +374,23 @@ function load_rohsa_config(path::AbstractString)
     end
     opts["fits-extension"] = VGT.normalize_fits_extension(opts["fits-extension"])
     opts["config-path"] = abspath(path)
-    return opts
+    return RohsaConfig(opts)
 end
 
-function fortran_bool(raw)
-    value = lowercase(string(raw))
-    value in ("true", "yes", "1", ".true.", "t") && return ".true."
-    value in ("false", "no", "0", ".false.", "f") && return ".false."
-    throw(ArgumentError("Expected boolean-like value, got $(repr(raw))"))
+# The science parameters that vary between the runs of one config: the Gaussian
+# count and the six regularisation weights (the auto-config axes).
+struct RohsaCandidate
+    id::String  # empty outside auto-config
+    n_gauss::Int
+    lambda_amp::Float64
+    lambda_mu::Float64
+    lambda_sig::Float64
+    lambda_var_amp::Float64
+    lambda_var_mu::Float64
+    lambda_var_sig::Float64
 end
 
-function parse_bool(raw)
-    value = lowercase(string(raw))
-    value in ("true", "yes", "1") && return true
-    value in ("false", "no", "0") && return false
-    throw(ArgumentError("Expected boolean string, got $(repr(raw))"))
-end
-
-function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_path, n_gauss::Int, opts)
+function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_path, cfg::RohsaConfig, cand::RohsaCandidate)
     open(path, "w") do io
         # Upstream ROHSA consumes a Fortran namelist. Numeric real values are
         # emitted with d0 exponents to match the original examples.
@@ -187,65 +399,72 @@ function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_pa
         println(io, "    ,fileout = '$(abspath(out_path))'")
         println(io, "    ,timeout = '$(abspath(timeout_path))'")
         println(io, "    ,filename_noise = '$(abspath(rms_path))'")
-        println(io, "    ,n_gauss = $n_gauss")
-        println(io, "    ,lambda_amp = $(parse(Float64, opts["lambda-amp"]))d0")
-        println(io, "    ,lambda_mu = $(parse(Float64, opts["lambda-mu"]))d0")
-        println(io, "    ,lambda_sig = $(parse(Float64, opts["lambda-sig"]))d0")
-        println(io, "    ,lambda_var_amp = $(parse(Float64, opts["lambda-var-amp"]))d0")
-        println(io, "    ,lambda_var_mu = $(parse(Float64, opts["lambda-var-mu"]))d0")
-        println(io, "    ,lambda_var_sig = $(parse(Float64, opts["lambda-var-sig"]))d0")
-        println(io, "    ,amp_fact_init = $(parse(Float64, opts["amp-fact-init"]))d0")
-        println(io, "    ,sig_init = $(parse(Float64, opts["sig-init"]))d0")
-        println(io, "    ,lb_sig_init = $(parse(Float64, opts["lb-sig-init"]))d0")
-        println(io, "    ,ub_sig_init = $(parse(Float64, opts["ub-sig-init"]))d0")
-        println(io, "    ,lb_sig = $(parse(Float64, opts["lb-sig"]))d0")
-        println(io, "    ,ub_sig = $(parse(Float64, opts["ub-sig"]))d0")
-        println(io, "    ,init_option = '$(opts["init-option"])'")
-        println(io, "    ,maxiter_init = $(parse(Int, opts["maxiter-init"]))")
-        println(io, "    ,maxiter = $(parse(Int, opts["maxiter"]))")
-        println(io, "    ,m = $(parse(Int, opts["m"]))")
-        println(io, "    ,noise = $(fortran_bool(opts["rohsa-noise"]))")
-        println(io, "    ,regul = $(fortran_bool(opts["regul"]))")
-        println(io, "    ,descent = $(fortran_bool(opts["descent"]))")
-        println(io, "    ,lstd = $(parse(Int, opts["lstd"]))")
-        println(io, "    ,ustd = $(parse(Int, opts["ustd"]))")
-        println(io, "    ,iprint = $(parse(Int, opts["iprint"]))")
-        println(io, "    ,iprint_init = $(parse(Int, opts["iprint-init"]))")
-        println(io, "    ,save_grid = $(fortran_bool(opts["save-grid"]))")
-        if parse_bool(get(opts, "regul-grad-adjoint", "true"))
+        println(io, "    ,n_gauss = $(cand.n_gauss)")
+        println(io, "    ,lambda_amp = $(cand.lambda_amp)d0")
+        println(io, "    ,lambda_mu = $(cand.lambda_mu)d0")
+        println(io, "    ,lambda_sig = $(cand.lambda_sig)d0")
+        println(io, "    ,lambda_var_amp = $(cand.lambda_var_amp)d0")
+        println(io, "    ,lambda_var_mu = $(cand.lambda_var_mu)d0")
+        println(io, "    ,lambda_var_sig = $(cand.lambda_var_sig)d0")
+        println(io, "    ,amp_fact_init = $(cfg.amp_fact_init)d0")
+        println(io, "    ,sig_init = $(cfg.sig_init)d0")
+        println(io, "    ,lb_sig_init = $(cfg.lb_sig_init)d0")
+        println(io, "    ,ub_sig_init = $(cfg.ub_sig_init)d0")
+        println(io, "    ,lb_sig = $(cfg.lb_sig)d0")
+        println(io, "    ,ub_sig = $(cfg.ub_sig)d0")
+        println(io, "    ,init_option = '$(cfg.init_option)'")
+        println(io, "    ,maxiter_init = $(cfg.maxiter_init)")
+        println(io, "    ,maxiter = $(cfg.maxiter)")
+        println(io, "    ,m = $(cfg.m)")
+        println(io, "    ,noise = $(fortran_bool(cfg.noise))")
+        println(io, "    ,regul = $(fortran_bool(cfg.regul))")
+        println(io, "    ,descent = $(fortran_bool(cfg.descent))")
+        println(io, "    ,lstd = $(cfg.lstd)")
+        println(io, "    ,ustd = $(cfg.ustd)")
+        println(io, "    ,iprint = $(cfg.iprint)")
+        println(io, "    ,iprint_init = $(cfg.iprint_init)")
+        println(io, "    ,save_grid = $(fortran_bool(cfg.save_grid))")
+        if cfg.regul_grad_adjoint
             println(io, "    ,regul_grad_adjoint = .true.")
+        end
+        cfg.maxiter_last > 0 && println(io, "    ,maxiter_last = $(cfg.maxiter_last)")
+        if !isempty(cfg.checkpoint_at)
+            ckpt_dir = joinpath(dirname(abspath(out_path)), "checkpoints")
+            mkpath(ckpt_dir)
+            println(io, "    ,checkpoint_at = $(join(cfg.checkpoint_at, ","))")
+            println(io, "    ,checkpoint_prefix = '$(joinpath(ckpt_dir, "$(rohsa_run_label(cand))"))'")
         end
         println(io, "    /")
     end
     return path
 end
 
-function rohsa_trace_config(opts, n_gauss::Int)
+function rohsa_trace_config(cfg::RohsaConfig, cand::RohsaCandidate)
     return Dict(
-        "config_path" => get(opts, "config-path", ""),
+        "config_path" => cfg.config_path,
         "default_source" => "rohsa/upstream/ROHSA/ROHSApy.ipynb",
-        "n_gauss" => n_gauss,
-        "lambda_amp" => parse(Float64, opts["lambda-amp"]),
-        "lambda_mu" => parse(Float64, opts["lambda-mu"]),
-        "lambda_sig" => parse(Float64, opts["lambda-sig"]),
-        "lambda_var_amp" => parse(Float64, opts["lambda-var-amp"]),
-        "lambda_var_mu" => parse(Float64, opts["lambda-var-mu"]),
-        "lambda_var_sig" => parse(Float64, opts["lambda-var-sig"]),
-        "amp_fact_init" => parse(Float64, opts["amp-fact-init"]),
-        "sig_init" => parse(Float64, opts["sig-init"]),
-        "lb_sig_init" => parse(Float64, opts["lb-sig-init"]),
-        "ub_sig_init" => parse(Float64, opts["ub-sig-init"]),
-        "lb_sig" => parse(Float64, opts["lb-sig"]),
-        "ub_sig" => parse(Float64, opts["ub-sig"]),
-        "init_option" => opts["init-option"],
-        "maxiter_init" => parse(Int, opts["maxiter-init"]),
-        "maxiter" => parse(Int, opts["maxiter"]),
-        "m" => parse(Int, opts["m"]),
-        "noise" => fortran_bool(opts["rohsa-noise"]),
-        "regul" => fortran_bool(opts["regul"]),
-        "descent" => fortran_bool(opts["descent"]),
-        "lstd" => parse(Int, opts["lstd"]),
-        "ustd" => parse(Int, opts["ustd"]),
-        "save_grid" => fortran_bool(opts["save-grid"]),
+        "n_gauss" => cand.n_gauss,
+        "lambda_amp" => cand.lambda_amp,
+        "lambda_mu" => cand.lambda_mu,
+        "lambda_sig" => cand.lambda_sig,
+        "lambda_var_amp" => cand.lambda_var_amp,
+        "lambda_var_mu" => cand.lambda_var_mu,
+        "lambda_var_sig" => cand.lambda_var_sig,
+        "amp_fact_init" => cfg.amp_fact_init,
+        "sig_init" => cfg.sig_init,
+        "lb_sig_init" => cfg.lb_sig_init,
+        "ub_sig_init" => cfg.ub_sig_init,
+        "lb_sig" => cfg.lb_sig,
+        "ub_sig" => cfg.ub_sig,
+        "init_option" => cfg.init_option,
+        "maxiter_init" => cfg.maxiter_init,
+        "maxiter" => cfg.maxiter,
+        "m" => cfg.m,
+        "noise" => fortran_bool(cfg.noise),
+        "regul" => fortran_bool(cfg.regul),
+        "descent" => fortran_bool(cfg.descent),
+        "lstd" => cfg.lstd,
+        "ustd" => cfg.ustd,
+        "save_grid" => fortran_bool(cfg.save_grid),
     )
 end

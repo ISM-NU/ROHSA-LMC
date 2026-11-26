@@ -1,4 +1,4 @@
-From fc764b0203a066929cdd6eba1e6448e20a482bf2 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Denis Andreyev <257564291+unsound-mint@users.noreply.github.com>
 Date: Sat, 17 Oct 2026 19:53:20 +0500
 Subject: [PATCH] Optional binary input format
@@ -16,7 +16,6 @@ unchanged and remain the default.
 
 The same values give a bit-for-bit identical decomposition from either
 format.
-
 ---
  README.md                      |  3 +++
  python/ROHSApy/ROHSApy/core.py | 15 +++++++++++++++
@@ -24,7 +23,7 @@ format.
  3 files changed, 37 insertions(+)
 
 diff --git a/README.md b/README.md
-index 852ace9..46a02d0 100644
+index ec854e1..fba9c18 100644
 --- a/README.md
 +++ b/README.md
 @@ -14,6 +14,9 @@ All codes used in this work are available [here](https://github.com/antoinemarch
@@ -93,6 +92,3 @@ index 97cdd62..3d55f9a 100644
      open(unit=11, file=filename, action="read", status="old", iostat=ios)
      if (ios /= 0) stop "opening file error"
      
--- 
-2.56.0
-
