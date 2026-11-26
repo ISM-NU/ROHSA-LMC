@@ -3,8 +3,9 @@ using Random
 using RohsaLMC: read_rohsa_parameters
 
 # Contract of the live channel range (mod_array.f90 filename_range, used by missing_data = "skip"):
-# 1. Without a range file nothing changes, and a range file that marks every channel live gives the same output byte
-#    for byte (the change is a no-op on full ranges).
+# 1. Without a range file nothing changes, and on a power-of-two map a range file that marks every channel live gives
+#    the same output byte for byte. On a padded map it does not: the padding then has an empty range (no data) instead
+#    of being fitted as zeros.
 # 2. Channels outside a pixel's range carry no data term: on a cube where a block of channels is zeroed in half of the
 #    field (as in a mosaic whose pointings cover different channel ranges), the fit with ranges recovers the injected
 #    Gaussians about as well as the fit of the cube without the zeroed block, and better than a fit that treats the
