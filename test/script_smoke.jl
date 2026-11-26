@@ -66,10 +66,14 @@ using Random
             wrapper.parse_args(["--config", config_path])
         end
         @test_throws ArgumentError load(config_text * "checkpoint_at = [0]\n")
+        skip_text = replace(config_text, "noise = false" => "noise = true") * "missing_data = \"skip\"\n"
+        @test_throws ArgumentError load(replace(skip_text, "regul = true" => "regul = false"))
+        @test_throws ArgumentError load(config_text * "missing_data = \"skip\"\n")
+        @test_throws ArgumentError load(skip_text * "spectral_kernel = \"hanning\"\n")
         load(config_text), load(config_text * "regul_grad_adjoint = false\n"),
         load(config_text * "maxiter_last = 5000\ncheckpoint_at = [800, 100]\n"),
-        load(config_text * "noise_estimate = \"line_free\"\nnoise_per_pixel = true\nnoise_channels = \"1-10,95-106\"\n" *
-             "noise_floor_quantile = 0.01\nmissing_data = \"skip\"\nchannel_range_file = \"ranges.fits\"\n")
+        load(skip_text * "noise_estimate = \"line_free\"\nnoise_per_pixel = true\nnoise_channels = \"1-10,95-106\"\n" *
+             "noise_floor_quantile = 0.01\nchannel_range_file = \"ranges.fits\"\n")
     end
     @test override_cfg.n_gauss == [4, 6]
     @test (override_cfg.noise_estimate, override_cfg.noise_per_pixel, override_cfg.noise_channels) ==

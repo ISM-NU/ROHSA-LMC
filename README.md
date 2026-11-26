@@ -13,8 +13,6 @@ the group's LMC-cold-gas repository, which stays private until publication.
 
 Group members usually work from the LMC workspace (the private ISM-NU/LMC-workspace repository), whose `setup.sh` clones the related repositories side by side and links the shared `lmc-data` folder.
 
-`deps/VGT` is a private repository, so the clone below needs access to the ISM-NU organisation. Without it `--recursive` stops with "Repository not found" and the package cannot be built.
-
 ```bash
 git clone --recursive https://github.com/ISM-NU/ROHSA-LMC.git
 cd ROHSA-LMC
@@ -62,7 +60,7 @@ ROHSA workflow details: `rohsa/README.md`.
 
 ## Related repos
 
-- [VGT.jl](https://github.com/ISM-NU/VGT.jl) (private, ISM-NU members only) - the VGT method (`VGT` package). Pinned here as `deps/VGT`.
+- [VGT.jl](https://github.com/ISM-NU/VGT.jl) - the VGT method (`VGT` package). Pinned here as `deps/VGT`.
 - LMC-foreground (private until publication) - Milky Way foreground, Planck and starlight comparisons. Experiments.
 - LMC-cold-gas (private until publication) - ROHSA runs and cold H I work. Pins this repo.
 - [LMC-shells](https://github.com/ISM-NU/LMC-shells) - optical supergiant-shell research. Experiments.

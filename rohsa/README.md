@@ -93,6 +93,8 @@ ranges (all opt-in in `[input]`; the defaults reproduce earlier runs):
   multiresolution levels average each channel over the children observed in
   it and take the union of their ranges (mod_functions.f90 `mean_array_live`).
   The default `"zero"` writes NaN as 0 and fits those zeros as data.
+  `"skip"` needs `regul = true`, `noise = true` and `spectral_kernel = "none"`;
+  other settings would fit the fill as data, so the config is refused.
 - `channel_range_file` (with `"skip"`): reliable ranges made beforehand by
   `rohsa/cli/channel_ranges.jl`. In a mosaic, end-of-band channels that only one
   of two overlapping blocks covers can be averaged with the empty block, so

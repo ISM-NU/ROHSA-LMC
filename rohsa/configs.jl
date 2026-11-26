@@ -307,6 +307,12 @@ function RohsaConfig(o::Dict{String, String})
         getfloat("auto-config-physical-weight"),
         getfloat("auto-config-stability-weight"),
     )
+    if o["missing-data"] == "skip"
+        # The live range only enters the full-resolution data term with regul and ROHSA's own noise, and the spectral kernel
+        # would average the zero fill into the range ends. Other combinations would silently fit the fill as data.
+        getflag("regul") && getflag("rohsa-noise") && o["spectral-kernel"] == "none" ||
+            throw(ArgumentError("missing_data = skip needs regul = true, noise = true and spectral_kernel = none"))
+    end
     return RohsaConfig(;
         input=o["input"],
         output_dir=o["output-dir"],
