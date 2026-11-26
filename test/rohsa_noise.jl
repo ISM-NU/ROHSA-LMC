@@ -115,3 +115,45 @@ end
     @test isapprox(median(m), 0.3; rtol=0.08)
     @test RohsaInputsTest.robust_channel_difference_noise(cube) > 0.33   # line slopes raise the default estimate
 end
+
+@testset "ROHSA live channel ranges and the range file" begin
+    # Pixels of a mosaic: full band; channels 1-4 and 15-20 fill (exact zeros) with a negative live voxel at the first
+    # live channel; all NaN (beyond the survey edge); all zeros.
+    nx, ny, nv = 3, 2, 20
+    cube = fill(0.5f0, nx, ny, nv)
+    cube[2, 1, [1:4; 15:20]] .= 0.0f0
+    cube[2, 1, 5] = -0.3f0
+    cube[3, 1, :] .= NaN32
+    cube[1, 2, :] .= 0.0f0
+    first, last = RohsaInputsTest.live_channel_ranges(cube)
+    @test (first[1, 1], last[1, 1]) == (1, 20)
+    @test (first[2, 1], last[2, 1]) == (5, 14)
+    @test first[3, 1] > last[3, 1] && first[1, 2] > last[1, 2]
+    mktempdir() do dir
+        path = RohsaInputsTest.write_range_map(joinpath(dir, "r.dat"), first, last)
+        lines = readlines(path)
+        @test lines[1] == "$ny\t$nx"                   # header "ny nx", rows "y x first last", 0-based
+        @test lines[2] == "0\t0\t0\t19"
+        @test lines[3] == "0\t1\t4\t13"
+        @test lines[4] == "0\t2\t0\t-1"                # empty range
+        @test lines[5] == "1\t0\t0\t-1"
+        @test length(lines) == 1 + nx * ny
+    end
+end
+
+@testset "ROHSA line-free noise map ignores the fill channels of a mosaic block" begin
+    # Same noise everywhere; in the right half the first 40 channels are fill (exact zeros), as outside an observing
+    # block's channel range. The map there must not change: zeros are never noise samples.
+    rng = MersenneTwister(21)
+    nx, ny, nv = 24, 16, 120
+    cube = Float32.(0.25 .* randn(rng, nx, ny, nv))
+    for c in 1:nv
+        cube[:, :, c] .+= Float32(6 * exp(-0.5 * ((c - 70) / 4)^2))
+    end
+    zeroed = copy(cube)
+    zeroed[13:end, :, 1:40] .= 0.0f0
+    m = RohsaInputsTest.line_free_noise_map(cube; smooth_px=5)
+    mz = RohsaInputsTest.line_free_noise_map(zeroed; smooth_px=5)
+    @test isapprox(median(mz[15:end, :]), 0.25; rtol=0.08)
+    @test all(0.85 .< mz[15:end, :] ./ m[15:end, :] .< 1.15)
+end

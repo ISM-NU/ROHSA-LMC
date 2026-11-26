@@ -30,6 +30,8 @@ const ROHSA_CONFIG_KEYS = Dict(
     "noise_estimate" => "noise-estimate",
     "noise_per_pixel" => "noise-per-pixel",
     "noise_channels" => "noise-channels",
+    "noise_floor_quantile" => "noise-floor-quantile",
+    "missing_data" => "missing-data",
     "n_gauss" => "n-gauss",
     "lambda_amp" => "lambda-amp",
     "lambda_mu" => "lambda-mu",
@@ -129,6 +131,17 @@ const OPTIONAL_ROHSA_OPTIONS = Dict(
     "noise-estimate" => "channel_difference",
     "noise-per-pixel" => "false",
     "noise-channels" => "",
+    # Floor of the per-pixel line-free map at this quantile of its values over the pixels with data (0 = no floor).
+    # In mosaics, some pixels hold much quieter data in their line-free channels (e.g. single-dish only at the band
+    # edges) than in their line channels; the line-free estimate is then too low there and ROHSA would give those
+    # pixels' line channels far too much weight. Used only with noise-estimate = "line_free".
+    "noise-floor-quantile" => "0",
+    # How missing data reach ROHSA. "zero" (default, unchanged): NaN voxels are written as 0 and fitted like data, so
+    # a pixel beyond the survey edge is fitted as a zero spectrum. "skip": each pixel's live channel range (first to
+    # last channel that is neither 0 nor NaN, from the raw cube) goes to ROHSA in live_channel_range.dat
+    # (`filename_range`); channels outside it carry no data term, and pixels without data get noise 0 (no data term;
+    # their parameters follow the smoothing term). Needs the cube in memory (write-region-fits = true).
+    "missing-data" => "zero",
     "auto-config-enabled" => "false",
     "auto-config-profile" => "physical_decomposition",
     "auto-config-max-candidates" => "24",
@@ -224,6 +237,8 @@ Base.@kwdef struct RohsaConfig
     noise_estimate::String
     noise_per_pixel::Bool
     noise_channels::String
+    noise_floor_quantile::Float64
+    missing_data::String
     n_gauss::Vector{Int}
     lambda_amp::Float64
     lambda_mu::Float64
@@ -311,6 +326,8 @@ function RohsaConfig(o::Dict{String, String})
         noise_estimate=o["noise-estimate"],
         noise_per_pixel=getflag("noise-per-pixel"),
         noise_channels=o["noise-channels"],
+        noise_floor_quantile=getfloat("noise-floor-quantile"),
+        missing_data=o["missing-data"],
         n_gauss,
         lambda_amp=getfloat("lambda-amp"),
         lambda_mu=getfloat("lambda-mu"),
@@ -390,7 +407,8 @@ struct RohsaCandidate
     lambda_var_sig::Float64
 end
 
-function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_path, cfg::RohsaConfig, cand::RohsaCandidate)
+function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_path, cfg::RohsaConfig, cand::RohsaCandidate;
+                                range_path::AbstractString="")
     open(path, "w") do io
         # Upstream ROHSA consumes a Fortran namelist. Numeric real values are
         # emitted with d0 exponents to match the original examples.
@@ -427,6 +445,8 @@ function write_rohsa_parameters(path, input_path, rms_path, out_path, timeout_pa
         if cfg.regul_grad_adjoint
             println(io, "    ,regul_grad_adjoint = .true.")
         end
+        # Live channel range file (missing_data = "skip"); emitted only when set, so older binaries still read the namelist.
+        isempty(range_path) || println(io, "    ,filename_range = '$(abspath(range_path))'")
         cfg.maxiter_last > 0 && println(io, "    ,maxiter_last = $(cfg.maxiter_last)")
         if !isempty(cfg.checkpoint_at)
             ckpt_dir = joinpath(dirname(abspath(out_path)), "checkpoints")

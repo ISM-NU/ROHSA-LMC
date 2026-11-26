@@ -126,7 +126,9 @@ function run_rohsa_preprocessing(cfg::RohsaConfig)
                                                 holdout_mask=cfg.holdout_mask,
                                                 noise_estimate=cfg.noise_estimate,
                                                 noise_per_pixel=cfg.noise_per_pixel,
-                                                noise_channels=cfg.noise_channels)
+                                                noise_channels=cfg.noise_channels,
+                                                missing_data=cfg.missing_data,
+                                                noise_floor_quantile=cfg.noise_floor_quantile)
         push!(region_rows, Dict{String, Any}(
             "region" => region.label,
             "x0" => region.x0,
