@@ -14,7 +14,8 @@ the group's LMC-cold-gas repository, which stays private until publication.
 Group members usually work from the LMC workspace (the private ISM-NU/LMC-workspace repository), whose `setup.sh` clones the related repositories side by side and links the shared `lmc-data` folder.
 
 ```bash
-git clone --recursive https://github.com/ISM-NU/ROHSA-LMC.git
+git clone https://github.com/ISM-NU/ROHSA-LMC.git
+git clone https://github.com/ISM-NU/VGT.jl.git    # next to it: the Julia environment loads ../VGT.jl
 cd ROHSA-LMC
 ln -s ../lmc-data data          # shared data folder next to the repo, ignored by git
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
