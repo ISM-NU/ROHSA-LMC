@@ -1,4 +1,0 @@
-[submodule "deps/VGT"]
-	path = deps/VGT
-	url = https://github.com/ISM-NU/VGT.jl.git
-	branch = main

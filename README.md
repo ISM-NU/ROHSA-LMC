@@ -14,16 +14,17 @@ the group's LMC-cold-gas repository, which stays private until publication.
 Group members usually work from the LMC workspace (the private ISM-NU/LMC-workspace repository), whose `setup.sh` clones the related repositories side by side and links the shared `lmc-data` folder.
 
 ```bash
-git clone --recursive https://github.com/ISM-NU/ROHSA-LMC.git
+git clone https://github.com/ISM-NU/ROHSA-LMC.git
+git clone https://github.com/ISM-NU/VGT.jl.git    # next to it: the Julia environment loads ../VGT.jl
 cd ROHSA-LMC
 ln -s ../lmc-data data          # shared data folder next to the repo, ignored by git
-git submodule foreach --recursive 'ln -sfn "$toplevel/data" data'   # same data inside submodules
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
-`deps/VGT` is a git submodule (ISM-NU/VGT.jl).
-It provides the Julia package `VGT` (FITS I/O, noise estimates, VGT).
-Update the pin with `git -C deps/VGT pull`, then commit the new pointer.
+The Julia package `VGT` (FITS I/O, noise estimates, VGT) comes from a sibling
+checkout of ISM-NU/VGT.jl at `../VGT.jl` (the workspace `setup.sh` clones it).
+`Manifest.toml` points there by path, so ROHSA-LMC uses whatever commit that
+checkout is on. Runs record the commit (see `hpc/irgetas/README.md`).
 
 The Fortran binary is built on first use by the runner (needs `gfortran`). On
 Irgetas, `rohsa.slurm` rebuilds it when a source is newer.
@@ -56,13 +57,12 @@ ROHSA workflow details: `rohsa/README.md`.
 - `scripts/` - stand-alone evaluation scripts (`scripts/README.md`).
 - `test/` - tests.
 - `docs/` - validation notes, upstream pull requests, the ROHSA paper. Map: `docs/README.md`.
-- `deps/VGT` - submodule, the VGT method.
 
 ## Related repos
 
-- [VGT.jl](https://github.com/ISM-NU/VGT.jl) - the VGT method (`VGT` package). Pinned here as `deps/VGT`.
+- [VGT.jl](https://github.com/ISM-NU/VGT.jl) - the VGT method (`VGT` package). Used from the sibling checkout `../VGT.jl`.
 - LMC-foreground (private until publication) - Milky Way foreground, Planck and starlight comparisons. Experiments.
-- LMC-cold-gas (private until publication) - ROHSA runs and cold H I work. Pins this repo.
+- LMC-cold-gas (private until publication) - ROHSA runs and cold H I work. Uses this repo from `../ROHSA-LMC`.
 - [LMC-shells](https://github.com/ISM-NU/LMC-shells) - optical supergiant-shell research. Experiments.
 
 ## License

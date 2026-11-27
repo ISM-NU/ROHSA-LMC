@@ -3,7 +3,7 @@
 How we run the ROHSA decomposition, the velocity-layer cubes and the
 de-rotation on the Irgetas cluster. Login node: use it only to copy files and
 submit jobs. VGT runs on the layer cubes use the VGT repo's own Slurm script
-(`deps/VGT/hpc/irgetas/vgt.slurm`, see below).
+(`../VGT.jl/hpc/irgetas/vgt.slurm`, see below).
 
 | Script | What it does |
 |---|---|
@@ -20,16 +20,17 @@ experiments live in LMC-cold-gas; method examples are in `configs/rohsa/`.
 ## Access
 
 Connect to the NU GlobalProtect VPN when off campus, then
-`ssh YOUR_USERNAME@<irgetas login node>` (address in the NU HPC user guide). Our copy of the repository is
-`/shared/home/YOUR_USERNAME/rohsa-lmc`. It is not a git checkout: sync tracked
-files from a laptop checkout with
+`ssh YOUR_USERNAME@<irgetas login node>` (address in the NU HPC user guide). The repository goes on the cluster as
+a git clone next to a clone of VGT.jl, because the Julia environment loads `../VGT.jl` and the experiment repos'
+jobs record the commit of both:
 
 ```bash
-rsync -az --files-from=<(git ls-files --recurse-submodules | grep -v '^rohsa/upstream/ROHSA/src/ROHSA$') \
-  ./ YOUR_USERNAME@<irgetas login node>:/shared/home/YOUR_USERNAME/rohsa-lmc/
+cd ~ && git clone <ROHSA-LMC remote> ROHSA-LMC && git clone <VGT.jl remote> VGT.jl
 ```
 
-The ROHSA binary is excluded on purpose: `rohsa.slurm` rebuilds it on the
+Update with `git pull` when no job that uses the clone is queued or running. Only pushed commits reach the cluster.
+
+The ROHSA binary is not tracked: `rohsa.slurm` builds it on the
 cluster whenever a Fortran source is newer than the binary. Large cubes go in
 `data/` with `rsync -az --partial`, which resumes after a VPN drop.
 
@@ -105,12 +106,12 @@ control). Pass extra `rohsa/cli/layer_cubes.jl` options (for example
 `--split-by width --cold-max-fwhm 4.8 --warm-min-fwhm 4.8`) with
 `LAYER_ARGS="..."` in `--export`.
 
-Run VGT on each cube with the VGT repo's script, from the VGT checkout
-(`deps/VGT`), whose environment variable is `VGT_REPO`:
+Run VGT on each cube with the VGT repo's script, from the sibling VGT.jl
+checkout, whose environment variable is `VGT_REPO`:
 
 ```bash
-sbatch --job-name=vgt_<cube> --export=ALL,VGT_REPO=$PWD/deps/VGT,VGT_CONFIG=<LAYER_DIR>/vgt_<cube>.toml \
-  deps/VGT/hpc/irgetas/vgt.slurm
+sbatch --job-name=vgt_<cube> --export=ALL,VGT_REPO=$(realpath ../VGT.jl),VGT_CONFIG=<LAYER_DIR>/vgt_<cube>.toml \
+  ../VGT.jl/hpc/irgetas/vgt.slurm
 ```
 
 Each config already has its own `output_dir`.
@@ -136,9 +137,9 @@ LMC-cold-gas `hpc/irgetas/submit_dirinj.sh` (`fits` phase) and
 `submit_r1125_wts.sh` (`build_ok`) refuse to submit unless three md5 sums match:
 the binary `rohsa/upstream/ROHSA/src/ROHSA`, `rohsa/inputs.jl` and
 `rohsa/configs.jl`. They read `$ROHSA_REPO`, default `~/rohsa-weights`. That is
-a separate checkout (`r1125-weights`, commit 2579fa5), not the ROHSA-LMC
-submodule pinned under `deps/` in LMC-cold-gas, so bumping the pin does not
-trip them. Moving the checkout to any commit that changes one of the files
+a separate checkout (`r1125-weights`, commit 2579fa5), not the sibling
+`~/ROHSA-LMC` that LMC-cold-gas uses by default, so updating that checkout does
+not trip them. Moving the checkout to any commit that changes one of the files
 does, including the tip of `r1125-weights`.
 
 The guard does not cover `preprocess.jl`, `auto_config.jl` or `runner.jl`, which

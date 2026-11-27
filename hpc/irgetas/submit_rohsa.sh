@@ -51,7 +51,7 @@ time_limit=${TIME:-$time_limit}
 
 # Paths inside the config (input, output_dir) resolve from the directory you
 # submit from, so an experiment repo can keep its configs and data and call
-# this script through its deps/ROHSA-LMC submodule.
+# this script from its sibling checkout (../ROHSA-LMC).
 run_dir=$PWD
 config=$(realpath "$config")
 

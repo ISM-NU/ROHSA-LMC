@@ -1949,7 +1949,7 @@ version = "1.28.0"
 
 [[deps.VGT]]
 deps = ["AstroFITS", "BenchmarkTools", "CairoMakie", "Dates", "DrWatson", "FFTW", "FITSIO", "Images", "JLD2", "LinearAlgebra", "Mmap", "Printf", "Profile", "Random", "SHA", "Statistics", "StatsBase", "TOML", "WCS"]
-path = "deps/VGT"
+path = "../VGT.jl"
 uuid = "de575b2d-bb0d-4782-93cb-7f87631ef28a"
 version = "0.1.0"
 

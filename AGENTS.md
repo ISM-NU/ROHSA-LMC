@@ -10,7 +10,7 @@ Read `README.md` first, then `rohsa/README.md`.
 
 - Belongs here: code that prepares, runs or post-processes a ROHSA decomposition, and its tests, validation notes and cluster scripts.
 - Does not belong here: experiments (scans, null and injection tests, cold-gas maps, figures, comparisons with stars or Planck). They go to `LMC-cold-gas` (ROHSA experiments) or `LMC-foreground` (foreground work).
-- VGT itself is not changed here. It comes from `deps/VGT` (ISM-NU/VGT.jl). Do not edit anything under `deps/`.
+- VGT itself is not changed here. It comes from the sibling checkout `../VGT.jl` (ISM-NU/VGT.jl); change it there, not here.
 
 ## Language
 
@@ -38,8 +38,6 @@ Use Julia where performance needs it. Simple scripts can be Python.
 - Docs are short and have a status (active guidance, validation evidence, historical, archive). Add new docs to `docs/README.md`.
 - Papers go under `docs/references/` and are summarized in the docs, not copied.
 
-## Submodule
+## VGT dependency
 
-VGT comes from the public ISM-NU/VGT.jl submodule at `deps/VGT`.
-
-After changing `deps/VGT` pointers in a consumer repo, commit the pointer there. Here, update with `git -C deps/VGT pull` and commit the new pointer.
+VGT comes from the sibling checkout `../VGT.jl` (`Manifest.toml` has `path = "../VGT.jl"`). There is no pin: a change pushed to VGT.jl main is used here on the next run. Run this repo's tests after pulling VGT.jl.

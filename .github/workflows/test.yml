@@ -18,8 +18,13 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      # Manifest.toml uses VGT from the sibling checkout ../VGT.jl (main).
+      - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          repository: ISM-NU/VGT.jl
+          path: .vgtjl
+      - name: Link VGT.jl next to the repo
+        run: ln -s "$PWD/.vgtjl" ../VGT.jl
       - uses: julia-actions/setup-julia@v2
         with:
           version: "1.12"
