@@ -2,7 +2,7 @@ module RohsaLMC
 
 # ROHSA Gaussian decomposition products, velocity-layer cubes and disk
 # de-rotation for the LMC H I cubes. Generic FITS/VGT helpers come from the VGT
-# package (`VGT`, deps/VGT).
+# package (`VGT`, sibling checkout ../VGT.jl).
 
 using VGT
 using VGT: write_fits, read_fits_image, normalize_fits_extension, robust_negative_noise,
